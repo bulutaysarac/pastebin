@@ -18,6 +18,15 @@ docker compose up --build -d   # app on http://localhost:8080
 docker compose down            # stop (add -v to also wipe the MySQL volume)
 ```
 
+## Configuration
+
+| Variable | Default |
+|---|---|
+| `PORT` | `8080` |
+| `BASE_URL` | `http://localhost:8080` |
+| `DB_HOST` / `DB_PORT` | `localhost` / `3306` |
+| `DB_USER` / `DB_PASSWORD` / `DB_NAME` | `pastebin` / `pastebin` / `pastebin` |
+
 ## Develop
 
 ```sh
@@ -28,9 +37,11 @@ go test ./...
 
 | Path | What |
 |---|---|
-| `main.go` | entrypoint: config from env, Echo server setup, graceful shutdown |
+| `main.go` | entrypoint: wires the pieces together in order |
+| `environments` | settings read from env vars |
 | `routes/api.go` | URL → handler mapping |
 | `handlers` | request handling, HTML templates, `Cache-Control` |
+| `internal/providers` | startup steps: DB connection, middlewares, renderer, server start/shutdown |
 | `internal/idgen` | random 8-char base62 IDs |
 | `internal/paste` | create with a unique ID (retries on collision), read with expiry check |
 | `internal/mysqlstore` | MySQL implementation of the paste store |
