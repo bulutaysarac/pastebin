@@ -28,9 +28,10 @@ go test ./...
 
 | Path | What |
 |---|---|
-| `cmd/pastebin` | entrypoint: config from env, wiring, graceful shutdown |
+| `main.go` | entrypoint: config from env, wiring, graceful shutdown |
+| `routes` | URL → handler mapping |
+| `handlers` | request handling, HTML templates, `Cache-Control` |
 | `internal/idgen` | random 8-char base62 IDs |
 | `internal/paste` | create with a unique ID (retries on collision), read with expiry check |
 | `internal/mysqlstore` | MySQL implementation of the paste store |
-| `internal/httpapi` | routes, HTML templates, `Cache-Control` |
 | `migrations` | schema, applied by the MySQL container on first start |

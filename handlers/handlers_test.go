@@ -1,4 +1,6 @@
-package httpapi
+// External test package: it drives the handlers through the real router,
+// and package routes already imports package handlers.
+package handlers_test
 
 import (
 	"context"
@@ -13,7 +15,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bulutaysarac/pastebin-system-design/handlers"
 	"github.com/bulutaysarac/pastebin-system-design/internal/paste"
+	"github.com/bulutaysarac/pastebin-system-design/routes"
 )
 
 type memStore struct {
@@ -44,8 +48,8 @@ func (m *memStore) Get(_ context.Context, id string) (paste.Paste, error) {
 func newTestServer(t *testing.T) (*httptest.Server, *memStore) {
 	t.Helper()
 	store := &memStore{pastes: map[string]paste.Paste{}}
-	h := New(paste.NewService(store), "http://paste.test", slog.New(slog.NewTextHandler(io.Discard, nil)))
-	srv := httptest.NewServer(h)
+	h := handlers.New(paste.NewService(store), "http://paste.test", slog.New(slog.NewTextHandler(io.Discard, nil)))
+	srv := httptest.NewServer(routes.New(h))
 	t.Cleanup(srv.Close)
 	return srv, store
 }

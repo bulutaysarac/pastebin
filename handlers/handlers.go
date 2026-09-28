@@ -1,6 +1,6 @@
-// Package httpapi serves the web pages: the home page form, paste creation
-// and paste viewing.
-package httpapi
+// Package handlers serves the web pages: the home page form, paste creation
+// and paste viewing. Which URL maps to which handler lives in package routes.
+package handlers
 
 import (
 	"embed"
@@ -37,27 +37,23 @@ var expiryOptions = []expiryOption{
 // maxBrowserCache caps the Cache-Control max-age sent with a paste.
 const maxBrowserCache = 24 * time.Hour
 
-type Server struct {
+type Handler struct {
 	pastes  *paste.Service
 	baseURL string
 	log     *slog.Logger
 }
 
-func New(pastes *paste.Service, baseURL string, log *slog.Logger) http.Handler {
-	s := &Server{pastes: pastes, baseURL: baseURL, log: log}
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /{$}", s.home)
-	mux.HandleFunc("POST /paste", s.createPaste)
-	mux.HandleFunc("GET /{id}", s.showPaste)
-	return mux
+func New(pastes *paste.Service, baseURL string, log *slog.Logger) *Handler {
+	return &Handler{pastes: pastes, baseURL: baseURL, log: log}
 }
 
-func (s *Server) home(w http.ResponseWriter, r *http.Request) {
-	s.render(w, http.StatusOK, "index.html", map[string]any{"Expiries": expiryOptions})
+// Home renders the form for a new paste.
+func (h *Handler) Home(w http.ResponseWriter, r *http.Request) {
+	h.render(w, http.StatusOK, "index.html", map[string]any{"Expiries": expiryOptions})
 }
 
-func (s *Server) createPaste(w http.ResponseWriter, r *http.Request) {
+// CreatePaste saves the submitted form and redirects to the new paste.
+func (h *Handler) CreatePaste(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "could not read form", http.StatusBadRequest)
 		return
@@ -69,9 +65,9 @@ func (s *Server) createPaste(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	p, err := s.pastes.Create(r.Context(), r.PostForm.Get("content"), ttl)
+	p, err := h.pastes.Create(r.Context(), r.PostForm.Get("content"), ttl)
 	if err != nil {
-		s.log.Error("create paste", "err", err)
+		h.log.Error("create paste", "err", err)
 		http.Error(w, "could not save paste", http.StatusInternalServerError)
 		return
 	}
@@ -81,26 +77,27 @@ func (s *Server) createPaste(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/"+p.ID, http.StatusSeeOther)
 }
 
-func (s *Server) showPaste(w http.ResponseWriter, r *http.Request) {
-	p, err := s.pastes.Get(r.Context(), r.PathValue("id"))
+// ShowPaste renders the paste named by the {id} path parameter.
+func (h *Handler) ShowPaste(w http.ResponseWriter, r *http.Request) {
+	p, err := h.pastes.Get(r.Context(), r.PathValue("id"))
 	if errors.Is(err, paste.ErrNotFound) {
 		w.Header().Set("Cache-Control", "no-store")
-		s.render(w, http.StatusNotFound, "notfound.html", nil)
+		h.render(w, http.StatusNotFound, "notfound.html", nil)
 		return
 	}
 	if err != nil {
-		s.log.Error("get paste", "id", r.PathValue("id"), "err", err)
+		h.log.Error("get paste", "id", r.PathValue("id"), "err", err)
 		http.Error(w, "could not load paste", http.StatusInternalServerError)
 		return
 	}
 
 	// private: only the reader's own browser may cache it, not shared proxies.
-	maxAge := cacheLifetime(p, s.pastes.Now())
+	maxAge := cacheLifetime(p, h.pastes.Now())
 	w.Header().Set("Cache-Control", "private, max-age="+strconv.Itoa(int(maxAge.Seconds())))
 
-	s.render(w, http.StatusOK, "paste.html", map[string]any{
+	h.render(w, http.StatusOK, "paste.html", map[string]any{
 		"Paste":    p,
-		"ShareURL": s.baseURL + "/" + p.ID,
+		"ShareURL": h.baseURL + "/" + p.ID,
 	})
 }
 
@@ -126,10 +123,10 @@ func lookupExpiry(value string) (time.Duration, bool) {
 	return 0, false
 }
 
-func (s *Server) render(w http.ResponseWriter, status int, name string, data any) {
+func (h *Handler) render(w http.ResponseWriter, status int, name string, data any) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(status)
 	if err := templates.ExecuteTemplate(w, name, data); err != nil {
-		s.log.Error("render template", "template", name, "err", err)
+		h.log.Error("render template", "template", name, "err", err)
 	}
 }

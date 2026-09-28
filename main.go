@@ -10,9 +10,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/bulutaysarac/pastebin-system-design/internal/httpapi"
+	"github.com/bulutaysarac/pastebin-system-design/handlers"
 	"github.com/bulutaysarac/pastebin-system-design/internal/mysqlstore"
 	"github.com/bulutaysarac/pastebin-system-design/internal/paste"
+	"github.com/bulutaysarac/pastebin-system-design/routes"
 )
 
 func main() {
@@ -44,7 +45,7 @@ func run(log *slog.Logger) error {
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           httpapi.New(paste.NewService(store), baseURL, log),
+		Handler:           routes.New(handlers.New(paste.NewService(store), baseURL, log)),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
