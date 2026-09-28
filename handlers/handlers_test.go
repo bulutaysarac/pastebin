@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/labstack/echo/v4"
+
 	"github.com/bulutaysarac/pastebin-system-design/handlers"
 	"github.com/bulutaysarac/pastebin-system-design/internal/paste"
 	"github.com/bulutaysarac/pastebin-system-design/routes"
@@ -49,7 +51,12 @@ func newTestServer(t *testing.T) (*httptest.Server, *memStore) {
 	t.Helper()
 	store := &memStore{pastes: map[string]paste.Paste{}}
 	h := handlers.New(paste.NewService(store), "http://paste.test", slog.New(slog.NewTextHandler(io.Discard, nil)))
-	srv := httptest.NewServer(routes.New(h))
+
+	e := echo.New()
+	e.Renderer = handlers.NewRenderer()
+	routes.RegisterAPIRoutes(e, h)
+
+	srv := httptest.NewServer(e)
 	t.Cleanup(srv.Close)
 	return srv, store
 }

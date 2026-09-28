@@ -3,21 +3,16 @@
 package handlers
 
 import (
-	"embed"
 	"errors"
-	"html/template"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
 
+	"github.com/labstack/echo/v4"
+
 	"github.com/bulutaysarac/pastebin-system-design/internal/paste"
 )
-
-//go:embed templates/*.html
-var templateFS embed.FS
-
-var templates = template.Must(template.ParseFS(templateFS, "templates/*.html"))
 
 // expiryOption is one choice in the home page's "expires" dropdown.
 type expiryOption struct {
@@ -48,54 +43,52 @@ func New(pastes *paste.Service, baseURL string, log *slog.Logger) *Handler {
 }
 
 // Home renders the form for a new paste.
-func (h *Handler) Home(w http.ResponseWriter, r *http.Request) {
-	h.render(w, http.StatusOK, "index.html", map[string]any{"Expiries": expiryOptions})
+func (h *Handler) Home(c echo.Context) error {
+	return c.Render(http.StatusOK, "index.html", map[string]any{"Expiries": expiryOptions})
 }
 
 // CreatePaste saves the submitted form and redirects to the new paste.
-func (h *Handler) CreatePaste(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, "could not read form", http.StatusBadRequest)
-		return
+func (h *Handler) CreatePaste(c echo.Context) error {
+	form, err := c.FormParams()
+	if err != nil {
+		return c.String(http.StatusBadRequest, "could not read form")
 	}
 
-	ttl, ok := lookupExpiry(r.PostForm.Get("expires"))
+	ttl, ok := lookupExpiry(form.Get("expires"))
 	if !ok {
-		http.Error(w, "unknown expiry option", http.StatusBadRequest)
-		return
+		return c.String(http.StatusBadRequest, "unknown expiry option")
 	}
 
-	p, err := h.pastes.Create(r.Context(), r.PostForm.Get("content"), ttl)
+	p, err := h.pastes.Create(c.Request().Context(), form.Get("content"), ttl)
 	if err != nil {
 		h.log.Error("create paste", "err", err)
-		http.Error(w, "could not save paste", http.StatusInternalServerError)
-		return
+		return c.String(http.StatusInternalServerError, "could not save paste")
 	}
 
 	// Post/Redirect/Get: refreshing the next page re-reads the paste instead
 	// of submitting the form a second time.
-	http.Redirect(w, r, "/"+p.ID, http.StatusSeeOther)
+	return c.Redirect(http.StatusSeeOther, "/"+p.ID)
 }
 
-// ShowPaste renders the paste named by the {id} path parameter.
-func (h *Handler) ShowPaste(w http.ResponseWriter, r *http.Request) {
-	p, err := h.pastes.Get(r.Context(), r.PathValue("id"))
+// ShowPaste renders the paste named by the :id path parameter.
+func (h *Handler) ShowPaste(c echo.Context) error {
+	id := c.Param("id")
+
+	p, err := h.pastes.Get(c.Request().Context(), id)
 	if errors.Is(err, paste.ErrNotFound) {
-		w.Header().Set("Cache-Control", "no-store")
-		h.render(w, http.StatusNotFound, "notfound.html", nil)
-		return
+		c.Response().Header().Set(echo.HeaderCacheControl, "no-store")
+		return c.Render(http.StatusNotFound, "notfound.html", nil)
 	}
 	if err != nil {
-		h.log.Error("get paste", "id", r.PathValue("id"), "err", err)
-		http.Error(w, "could not load paste", http.StatusInternalServerError)
-		return
+		h.log.Error("get paste", "id", id, "err", err)
+		return c.String(http.StatusInternalServerError, "could not load paste")
 	}
 
 	// private: only the reader's own browser may cache it, not shared proxies.
 	maxAge := cacheLifetime(p, h.pastes.Now())
-	w.Header().Set("Cache-Control", "private, max-age="+strconv.Itoa(int(maxAge.Seconds())))
+	c.Response().Header().Set(echo.HeaderCacheControl, "private, max-age="+strconv.Itoa(int(maxAge.Seconds())))
 
-	h.render(w, http.StatusOK, "paste.html", map[string]any{
+	return c.Render(http.StatusOK, "paste.html", map[string]any{
 		"Paste":    p,
 		"ShareURL": h.baseURL + "/" + p.ID,
 	})
@@ -121,12 +114,4 @@ func lookupExpiry(value string) (time.Duration, bool) {
 		}
 	}
 	return 0, false
-}
-
-func (h *Handler) render(w http.ResponseWriter, status int, name string, data any) {
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(status)
-	if err := templates.ExecuteTemplate(w, name, data); err != nil {
-		h.log.Error("render template", "template", name, "err", err)
-	}
 }

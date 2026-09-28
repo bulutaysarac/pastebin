@@ -10,6 +10,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
+
 	"github.com/bulutaysarac/pastebin-system-design/handlers"
 	"github.com/bulutaysarac/pastebin-system-design/internal/mysqlstore"
 	"github.com/bulutaysarac/pastebin-system-design/internal/paste"
@@ -43,16 +46,19 @@ func run(log *slog.Logger) error {
 	}
 	defer store.Close()
 
-	srv := &http.Server{
-		Addr:              addr,
-		Handler:           routes.New(handlers.New(paste.NewService(store), baseURL, log)),
-		ReadHeaderTimeout: 5 * time.Second,
-	}
+	e := echo.New()
+	e.HideBanner = true
+	e.HidePort = true
+	e.Server.ReadHeaderTimeout = 5 * time.Second
+	e.Renderer = handlers.NewRenderer()
+	e.Use(middleware.Recover())
+
+	routes.RegisterAPIRoutes(e, handlers.New(paste.NewService(store), baseURL, log))
 
 	errCh := make(chan error, 1)
 	go func() {
 		log.Info("listening", "addr", addr, "base_url", baseURL)
-		errCh <- srv.ListenAndServe()
+		errCh <- e.Start(addr)
 	}()
 
 	select {
@@ -64,7 +70,10 @@ func run(log *slog.Logger) error {
 	log.Info("shutting down")
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	return srv.Shutdown(shutdownCtx)
+	if err := e.Shutdown(shutdownCtx); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+	return nil
 }
 
 func env(key, fallback string) string {

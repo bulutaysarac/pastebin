@@ -28,8 +28,8 @@ go test ./...
 
 | Path | What |
 |---|---|
-| `main.go` | entrypoint: config from env, wiring, graceful shutdown |
-| `routes` | URL → handler mapping |
+| `main.go` | entrypoint: config from env, Echo server setup, graceful shutdown |
+| `routes/api.go` | URL → handler mapping |
 | `handlers` | request handling, HTML templates, `Cache-Control` |
 | `internal/idgen` | random 8-char base62 IDs |
 | `internal/paste` | create with a unique ID (retries on collision), read with expiry check |
