@@ -1,0 +1,18 @@
+{{define "paste.html"}}{{template "head" (print "pastebin · " .Paste.ID)}}
+  <div class="share">
+    <input type="text" id="share-url" value="{{.ShareURL}}" readonly aria-label="Share link">
+    <button type="button" class="btn" data-copy="#share-url">Copy link</button>
+    <a class="btn" href="/">New paste</a>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <div class="meta">
+        <span class="badge">{{.Language.Label}}</span>
+        <span>{{with .Paste.ExpiresAt}}Expires {{.Format "2006-01-02 15:04 MST"}}{{else}}Never expires{{end}}</span>
+      </div>
+      <button type="button" class="btn" data-copy="#paste-code">Copy text</button>
+    </div>
+    <pre class="code"><code id="paste-code" class="language-{{.Language.Value}}">{{.Paste.Content}}</code></pre>
+  </div>
+{{template "foot"}}{{end}}

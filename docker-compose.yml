@@ -1,0 +1,41 @@
+name: pastebin
+
+services:
+  app:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: "8080"
+      BASE_URL: "http://localhost:8080"
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_USER: pastebin
+      DB_PASSWORD: pastebin
+      DB_NAME: pastebin
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
+
+  mysql:
+    image: mysql:8.4
+    environment:
+      # Local development credentials only.
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: pastebin
+      MYSQL_USER: pastebin
+      MYSQL_PASSWORD: pastebin
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      # -h 127.0.0.1 forces TCP. The temporary server that runs the init scripts
+      # does not listen on TCP, so this only passes once MySQL is really ready.
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  mysql-data:
