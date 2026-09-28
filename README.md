@@ -5,18 +5,43 @@ This is a working implementation of the Pastebin design from
 
 ## Design (v1)
 
-![design v1](docs/design/v1.png)
+### Write flow
 
-- **Write:** the home page form posts to `POST /paste`. The server generates an 8-character ID, saves the paste to MySQL, and redirects to `/<id>`.
-- **Read:** `GET /<id>` loads the paste from MySQL and renders it. The response carries `Cache-Control: private, max-age=…`, so the reader's browser can serve repeat visits from its own cache. Expired pastes return 404.
+```mermaid
+flowchart LR
+    Author["Author<br/>(user)"] --> Home["Home page<br/>input · expires · share"]
+    Home -->|"POST /paste"| App["App server"]
+    App <-->|"new id"| IDGen["ID generator<br/>8 chars, unique"]
+    App -->|"INSERT id, content, expires_at"| DB[("MySQL")]
+    App -.->|"303 redirect to /xxxxxxxx"| Author
+```
+
+The home page form posts to `POST /paste`. The server generates an 8-character ID, saves the paste to MySQL, and redirects to `/<id>`, where the share link is shown.
+
+### Read flow
+
+```mermaid
+flowchart LR
+    Reader["Reader<br/>GET /xxxxxxxx"] --> Cache{"Browser cache<br/>fresh copy?"}
+    Cache -->|hit| Render["Render"]
+    Cache -->|miss| App["App server<br/>GET /:id"]
+    App -->|"SELECT by id"| DB[("MySQL")]
+    App -->|"200 + Cache-Control"| Render
+    App -.->|"unknown or expired: 404, no-store"| Render
+```
+
+`GET /<id>` loads the paste from MySQL and renders it. The response carries `Cache-Control: private, max-age=…`, capped at 24 hours and never past the paste's expiry. Within that window the reader's browser can serve repeat visits from its own cache.
 
 ## Run
 
 ```sh
-docker compose up --build -d   # app on http://localhost:8080
-./scripts/smoke.sh             # end-to-end check against the running stack
-docker compose down            # stop (add -v to also wipe the MySQL volume)
+make build    # build the app image
+make run      # start app + MySQL in the background (rebuilds if code changed) → http://localhost:8080
+make stop     # stop the containers, keep them and the data
+make remove   # delete containers, network, MySQL data volume and the app image
 ```
+
+`./scripts/smoke.sh` runs an end-to-end check against the running stack.
 
 ## Configuration
 
