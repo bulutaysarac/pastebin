@@ -1,4 +1,4 @@
-module github.com/bulutaysarac/pastebin-system-design
+module github.com/bulutaysarac/pastebin
 
 go 1.26
 

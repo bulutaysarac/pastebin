@@ -6,8 +6,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/bulutaysarac/pastebin-system-design/environments"
-	"github.com/bulutaysarac/pastebin-system-design/internal/mysqlstore"
+	"github.com/bulutaysarac/pastebin/environments"
+	"github.com/bulutaysarac/pastebin/internal/mysqlstore"
 )
 
 // ConnectDatabase waits up to a minute for MySQL (it is slow on first start)

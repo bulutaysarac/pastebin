@@ -10,7 +10,7 @@ import (
 
 	"github.com/go-sql-driver/mysql"
 
-	"github.com/bulutaysarac/pastebin-system-design/internal/paste"
+	"github.com/bulutaysarac/pastebin/internal/paste"
 )
 
 // MySQL error 1062: ER_DUP_ENTRY, a primary/unique key violation.

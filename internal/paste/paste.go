@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/bulutaysarac/pastebin-system-design/internal/idgen"
+	"github.com/bulutaysarac/pastebin/internal/idgen"
 )
 
 var (

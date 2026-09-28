@@ -4,7 +4,7 @@ package routes
 import (
 	"github.com/labstack/echo/v4"
 
-	"github.com/bulutaysarac/pastebin-system-design/handlers"
+	"github.com/bulutaysarac/pastebin/handlers"
 )
 
 func RegisterAPIRoutes(e *echo.Echo, h *handlers.Handler) {

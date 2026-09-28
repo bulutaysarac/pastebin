@@ -1,3 +1,5 @@
+name: pastebin
+
 services:
   app:
     build: .

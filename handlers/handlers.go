@@ -11,7 +11,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 
-	"github.com/bulutaysarac/pastebin-system-design/internal/paste"
+	"github.com/bulutaysarac/pastebin/internal/paste"
 )
 
 // expiryOption is one choice in the home page's "expires" dropdown.

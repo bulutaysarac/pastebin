@@ -12,7 +12,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 
-	"github.com/bulutaysarac/pastebin-system-design/environments"
+	"github.com/bulutaysarac/pastebin/environments"
 )
 
 // StartServer serves HTTP until SIGINT or SIGTERM arrives, then gives in-flight

@@ -3,7 +3,7 @@ package providers
 import (
 	"github.com/labstack/echo/v4"
 
-	"github.com/bulutaysarac/pastebin-system-design/handlers"
+	"github.com/bulutaysarac/pastebin/handlers"
 )
 
 // RegisterRenderer lets handlers render the HTML templates with c.Render.

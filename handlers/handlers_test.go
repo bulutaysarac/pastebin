@@ -17,9 +17,9 @@ import (
 
 	"github.com/labstack/echo/v4"
 
-	"github.com/bulutaysarac/pastebin-system-design/handlers"
-	"github.com/bulutaysarac/pastebin-system-design/internal/paste"
-	"github.com/bulutaysarac/pastebin-system-design/routes"
+	"github.com/bulutaysarac/pastebin/handlers"
+	"github.com/bulutaysarac/pastebin/internal/paste"
+	"github.com/bulutaysarac/pastebin/routes"
 )
 
 type memStore struct {
