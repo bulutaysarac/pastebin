@@ -44,7 +44,7 @@ var t0 = time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
 
 func TestCreateNeverExpires(t *testing.T) {
 	s := newTestService(newMemStore(), t0, "AAAAAAAA")
-	p, err := s.Create(context.Background(), "hello", 0)
+	p, err := s.Create(context.Background(), "hello", "plaintext", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func TestCreateNeverExpires(t *testing.T) {
 
 func TestCreateWithTTL(t *testing.T) {
 	s := newTestService(newMemStore(), t0.Add(500*time.Millisecond), "AAAAAAAA")
-	p, err := s.Create(context.Background(), "hello", time.Hour)
+	p, err := s.Create(context.Background(), "hello", "plaintext", time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func TestCreateRetriesOnCollision(t *testing.T) {
 	store.pastes["TAKEN000"] = Paste{ID: "TAKEN000"}
 	s := newTestService(store, t0, "TAKEN000", "FREE0000")
 
-	p, err := s.Create(context.Background(), "hello", 0)
+	p, err := s.Create(context.Background(), "hello", "plaintext", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,7 +84,7 @@ func TestCreateGivesUpAfterMaxAttempts(t *testing.T) {
 	store.collideFn = func(string) bool { return true }
 	s := newTestService(store, t0)
 
-	if _, err := s.Create(context.Background(), "hello", 0); err == nil {
+	if _, err := s.Create(context.Background(), "hello", "plaintext", 0); err == nil {
 		t.Fatal("expected an error when every id collides")
 	}
 }

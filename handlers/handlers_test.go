@@ -64,9 +64,15 @@ func newTestServer(t *testing.T) (*httptest.Server, *memStore) {
 // noRedirect makes the client return 3xx responses instead of following them.
 var noRedirect = &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 
+// postPaste submits the form without a language field, like curl or an old client would.
 func postPaste(t *testing.T, srv *httptest.Server, content, expires string) *http.Response {
 	t.Helper()
-	resp, err := noRedirect.PostForm(srv.URL+"/paste", url.Values{"content": {content}, "expires": {expires}})
+	return postForm(t, srv, url.Values{"content": {content}, "expires": {expires}})
+}
+
+func postForm(t *testing.T, srv *httptest.Server, form url.Values) *http.Response {
+	t.Helper()
+	resp, err := noRedirect.PostForm(srv.URL+"/paste", form)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +97,7 @@ func TestHomePageShowsForm(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
-	for _, want := range []string{`action="/paste"`, `name="content"`, `name="expires"`, `value="1h"`} {
+	for _, want := range []string{`action="/paste"`, `name="content"`, `name="expires"`, `value="1h"`, `name="language"`, `value="sql"`, `id="theme-toggle"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("home page is missing %s", want)
 		}
@@ -174,5 +180,57 @@ func TestUnknownExpiryIsRejected(t *testing.T) {
 	}
 	if len(store.pastes) != 0 {
 		t.Fatal("a paste was stored despite the bad expiry value")
+	}
+}
+
+func TestLanguageIsStoredAndRendered(t *testing.T) {
+	srv, store := newTestServer(t)
+	resp := postForm(t, srv, url.Values{"content": {"SELECT 1;"}, "expires": {"never"}, "language": {"sql"}})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("POST status = %d, want 303", resp.StatusCode)
+	}
+	loc := resp.Header.Get("Location")
+	if got := store.pastes[loc[1:]].Language; got != "sql" {
+		t.Fatalf("stored language = %q, want sql", got)
+	}
+
+	_, body := get(t, srv.URL+loc)
+	for _, want := range []string{`class="language-sql"`, `>SQL<`, `data-copy="#paste-code"`, `data-copy="#share-url"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("paste page is missing %s", want)
+		}
+	}
+}
+
+func TestMissingLanguageDefaultsToPlainText(t *testing.T) {
+	srv, store := newTestServer(t)
+	loc := postPaste(t, srv, "no language field", "never").Header.Get("Location")
+	if got := store.pastes[loc[1:]].Language; got != "plaintext" {
+		t.Fatalf("stored language = %q, want plaintext", got)
+	}
+}
+
+func TestUnknownLanguageIsRejected(t *testing.T) {
+	srv, store := newTestServer(t)
+	resp := postForm(t, srv, url.Values{"content": {"x"}, "expires": {"never"}, "language": {"brainfuck"}})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", resp.StatusCode)
+	}
+	if len(store.pastes) != 0 {
+		t.Fatal("a paste was stored despite the unknown language")
+	}
+}
+
+func TestAssetsAreServedWithCacheHeader(t *testing.T) {
+	srv, _ := newTestServer(t)
+	for _, path := range []string{"/assets/app.css", "/assets/app.js", "/assets/vendor/highlight.min.js", "/assets/vendor/github-dark.min.css"} {
+		resp, body := get(t, srv.URL+path)
+		if resp.StatusCode != http.StatusOK || len(body) == 0 {
+			t.Errorf("%s: status %d, %d bytes", path, resp.StatusCode, len(body))
+			continue
+		}
+		if cc := resp.Header.Get("Cache-Control"); cc != "public, max-age=3600" {
+			t.Errorf("%s: Cache-Control = %q", path, cc)
+		}
 	}
 }

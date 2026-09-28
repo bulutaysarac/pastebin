@@ -29,6 +29,33 @@ var expiryOptions = []expiryOption{
 	{"1w", "1 week", 7 * 24 * time.Hour},
 }
 
+// languageOption is one choice in the home page's "syntax" dropdown. Value is
+// the highlight.js language name; highlighting happens in the reader's browser,
+// so the server only stores and echoes this string.
+type languageOption struct {
+	Value string
+	Label string
+}
+
+var languageOptions = []languageOption{
+	{"plaintext", "Plain text"},
+	{"sql", "SQL"},
+	{"go", "Go"},
+	{"json", "JSON"},
+	{"yaml", "YAML"},
+	{"javascript", "JavaScript"},
+	{"typescript", "TypeScript"},
+	{"python", "Python"},
+	{"bash", "Bash"},
+	{"html", "HTML"},
+	{"css", "CSS"},
+	{"java", "Java"},
+	{"php", "PHP"},
+	{"rust", "Rust"},
+	{"markdown", "Markdown"},
+	{"diff", "Diff"},
+}
+
 // maxBrowserCache caps the Cache-Control max-age sent with a paste.
 const maxBrowserCache = 24 * time.Hour
 
@@ -44,7 +71,10 @@ func New(pastes *paste.Service, baseURL string, log *slog.Logger) *Handler {
 
 // Home renders the form for a new paste.
 func (h *Handler) Home(c echo.Context) error {
-	return c.Render(http.StatusOK, "index.html", map[string]any{"Expiries": expiryOptions})
+	return c.Render(http.StatusOK, "index.html", map[string]any{
+		"Expiries":  expiryOptions,
+		"Languages": languageOptions,
+	})
 }
 
 // CreatePaste saves the submitted form and redirects to the new paste.
@@ -59,7 +89,12 @@ func (h *Handler) CreatePaste(c echo.Context) error {
 		return c.String(http.StatusBadRequest, "unknown expiry option")
 	}
 
-	p, err := h.pastes.Create(c.Request().Context(), form.Get("content"), ttl)
+	language, ok := lookupLanguage(form.Get("language"))
+	if !ok {
+		return c.String(http.StatusBadRequest, "unknown language")
+	}
+
+	p, err := h.pastes.Create(c.Request().Context(), form.Get("content"), language.Value, ttl)
 	if err != nil {
 		h.log.Error("create paste", "err", err)
 		return c.String(http.StatusInternalServerError, "could not save paste")
@@ -88,8 +123,11 @@ func (h *Handler) ShowPaste(c echo.Context) error {
 	maxAge := cacheLifetime(p, h.pastes.Now())
 	c.Response().Header().Set(echo.HeaderCacheControl, "private, max-age="+strconv.Itoa(int(maxAge.Seconds())))
 
+	language, _ := lookupLanguage(p.Language)
+
 	return c.Render(http.StatusOK, "paste.html", map[string]any{
 		"Paste":    p,
+		"Language": language,
 		"ShareURL": h.baseURL + "/" + p.ID,
 	})
 }
@@ -105,6 +143,21 @@ func cacheLifetime(p paste.Paste, now time.Time) time.Duration {
 		}
 	}
 	return max(ttl, 0)
+}
+
+// lookupLanguage treats a missing value as plain text, so clients that do not
+// send a language (curl, older forms) keep working. Unknown values fail, and
+// an unknown value read back from the store renders as plain text.
+func lookupLanguage(value string) (languageOption, bool) {
+	if value == "" {
+		return languageOptions[0], true
+	}
+	for _, o := range languageOptions {
+		if o.Value == value {
+			return o, true
+		}
+	}
+	return languageOptions[0], false
 }
 
 func lookupExpiry(value string) (time.Duration, bool) {

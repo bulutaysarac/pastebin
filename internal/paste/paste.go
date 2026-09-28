@@ -27,6 +27,7 @@ const maxIDAttempts = 5
 type Paste struct {
 	ID        string
 	Content   string
+	Language  string     // highlight.js language name, e.g. "sql" or "plaintext"
 	ExpiresAt *time.Time // nil means the paste never expires
 }
 
@@ -57,8 +58,8 @@ func NewService(store Store) *Service {
 }
 
 // Create stores content under a new unique ID. A zero ttl means "never expires".
-func (s *Service) Create(ctx context.Context, content string, ttl time.Duration) (Paste, error) {
-	p := Paste{Content: content}
+func (s *Service) Create(ctx context.Context, content, language string, ttl time.Duration) (Paste, error) {
+	p := Paste{Content: content, Language: language}
 	if ttl > 0 {
 		// Truncate to whole seconds: that is all a DATETIME column keeps.
 		exp := s.now().Add(ttl).Truncate(time.Second)

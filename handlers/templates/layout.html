@@ -1,26 +1,41 @@
 {{define "head"}}<!doctype html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{.}}</title>
-  <style>
-    body { font-family: system-ui, sans-serif; max-width: 860px; margin: 2rem auto; padding: 0 1rem; color: #222; }
-    h1 a { color: inherit; text-decoration: none; }
-    textarea, pre { width: 100%; box-sizing: border-box; font-family: ui-monospace, monospace; font-size: 14px; }
-    textarea { height: 22rem; padding: .75rem; }
-    pre { background: #f5f5f5; padding: .75rem; overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
-    .row { display: flex; gap: .5rem; align-items: center; margin: .75rem 0; }
-    .row input[type=text] { flex: 1; padding: .4rem; }
-    button { padding: .45rem 1rem; cursor: pointer; }
-    .muted { color: #666; font-size: .9rem; }
-  </style>
+  <link rel="stylesheet" href="/assets/app.css">
+  <link rel="stylesheet" href="/assets/vendor/github.min.css" id="hljs-light">
+  <link rel="stylesheet" href="/assets/vendor/github-dark.min.css" id="hljs-dark">
+  <script>
+    // Runs before the first paint so the page never flashes the wrong theme.
+    function applyTheme(theme) {
+      document.documentElement.dataset.theme = theme;
+      document.getElementById("hljs-light").disabled = theme === "dark";
+      document.getElementById("hljs-dark").disabled = theme !== "dark";
+    }
+    applyTheme(localStorage.getItem("theme") ||
+      (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"));
+  </script>
+  <script src="/assets/vendor/highlight.min.js" defer></script>
+  <script src="/assets/app.js" defer></script>
 </head>
 <body>
-  <h1><a href="/">pastebin</a></h1>
+  <header class="topbar">
+    <a class="brand" href="/">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>
+      pastebin
+    </a>
+    <button type="button" id="theme-toggle" class="btn icon-btn" aria-label="Toggle light/dark theme" title="Toggle theme">
+      <svg class="icon-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      <svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+    </button>
+  </header>
+  <main class="container">
 {{end}}
 
 {{define "foot"}}
+  </main>
 </body>
 </html>
 {{end}}

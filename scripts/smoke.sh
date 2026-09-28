@@ -46,4 +46,19 @@ code=$(curl -s -o /dev/null -w '%{http_code}' --data 'content=x&expires=forever'
 [ "$code" = 400 ] || fail "bad expiry returned $code"
 echo "ok   unknown id → 404, bad expiry → 400"
 
+# 7. Language is stored and handed to the browser highlighter
+loc=$(curl -s -o /dev/null -w '%{redirect_url}' --data-urlencode 'content=SELECT id FROM pastes;' \
+  --data-urlencode 'expires=never' --data-urlencode 'language=sql' "$BASE/paste")
+curl -s "$BASE/${loc##*/}" | grep -q 'class="language-sql"' || fail "SQL paste is not marked language-sql"
+code=$(curl -s -o /dev/null -w '%{http_code}' --data 'content=x&expires=never&language=cobol' "$BASE/paste")
+[ "$code" = 400 ] || fail "unknown language returned $code"
+echo "ok   language=sql rendered, unknown language → 400"
+
+# 8. Static assets
+for path in /assets/app.css /assets/app.js /assets/vendor/highlight.min.js; do
+  code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE$path")
+  [ "$code" = 200 ] || fail "$path returned $code"
+done
+echo "ok   static assets served"
+
 echo "all smoke checks passed"

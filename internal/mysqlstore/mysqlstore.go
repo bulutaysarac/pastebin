@@ -58,8 +58,8 @@ func (s *Store) Close() error { return s.db.Close() }
 
 func (s *Store) Create(ctx context.Context, p paste.Paste) error {
 	_, err := s.db.ExecContext(ctx,
-		"INSERT INTO pastes (id, content, expires_at) VALUES (?, ?, ?)",
-		p.ID, p.Content, p.ExpiresAt)
+		"INSERT INTO pastes (id, content, language, expires_at) VALUES (?, ?, ?, ?)",
+		p.ID, p.Content, p.Language, p.ExpiresAt)
 
 	var myErr *mysql.MySQLError
 	if errors.As(err, &myErr) && myErr.Number == errDuplicateEntry {
@@ -74,8 +74,8 @@ func (s *Store) Get(ctx context.Context, id string) (paste.Paste, error) {
 		exp sql.NullTime
 	)
 	err := s.db.QueryRowContext(ctx,
-		"SELECT id, content, expires_at FROM pastes WHERE id = ?", id,
-	).Scan(&p.ID, &p.Content, &exp)
+		"SELECT id, content, language, expires_at FROM pastes WHERE id = ?", id,
+	).Scan(&p.ID, &p.Content, &p.Language, &exp)
 	if errors.Is(err, sql.ErrNoRows) {
 		return paste.Paste{}, paste.ErrNotFound
 	}

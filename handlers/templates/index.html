@@ -1,13 +1,25 @@
 {{define "index.html"}}{{template "head" "pastebin"}}
   <form method="post" action="/paste">
-    <textarea name="content" placeholder="Paste your text here" required autofocus></textarea>
-    <div class="row">
-      <label for="expires">Expires</label>
-      <select id="expires" name="expires">
-        {{range .Expiries}}<option value="{{.Value}}">{{.Label}}</option>
-        {{end}}
-      </select>
-      <button type="submit">Share</button>
+    <div class="card">
+      <div class="card-header">New paste</div>
+      <textarea class="editor" name="content" placeholder="Paste your text here…" required autofocus spellcheck="false"></textarea>
     </div>
+
+    <div class="options">
+      <label class="field">Syntax
+        <select name="language">
+          {{range .Languages}}<option value="{{.Value}}">{{.Label}}</option>
+          {{end}}
+        </select>
+      </label>
+      <label class="field">Expires
+        <select name="expires">
+          {{range .Expiries}}<option value="{{.Value}}">{{.Label}}</option>
+          {{end}}
+        </select>
+      </label>
+      <button type="submit" class="btn btn-primary">Create paste</button>
+    </div>
+    <p class="hint"><kbd>Ctrl</kbd> / <kbd>⌘</kbd> + <kbd>Enter</kbd> to create</p>
   </form>
 {{template "foot"}}{{end}}
