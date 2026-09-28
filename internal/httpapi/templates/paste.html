@@ -1,0 +1,11 @@
+{{define "paste.html"}}{{template "head" (print "pastebin · " .Paste.ID)}}
+  <div class="row">
+    <input type="text" id="share" value="{{.ShareURL}}" readonly>
+    <button type="button" onclick="navigator.clipboard.writeText(document.getElementById('share').value); this.textContent='Copied'">Copy link</button>
+  </div>
+  <p class="muted">
+    {{with .Paste.ExpiresAt}}Expires {{.Format "2006-01-02 15:04 MST"}}{{else}}Never expires{{end}}
+    · <a href="/">New paste</a>
+  </p>
+  <pre>{{.Paste.Content}}</pre>
+{{template "foot"}}{{end}}

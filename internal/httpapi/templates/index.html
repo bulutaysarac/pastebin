@@ -1,0 +1,13 @@
+{{define "index.html"}}{{template "head" "pastebin"}}
+  <form method="post" action="/paste">
+    <textarea name="content" placeholder="Paste your text here" required autofocus></textarea>
+    <div class="row">
+      <label for="expires">Expires</label>
+      <select id="expires" name="expires">
+        {{range .Expiries}}<option value="{{.Value}}">{{.Label}}</option>
+        {{end}}
+      </select>
+      <button type="submit">Share</button>
+    </div>
+  </form>
+{{template "foot"}}{{end}}
