@@ -62,6 +62,7 @@ Every request is logged, e.g. `INFO request method=GET path=/aB3xK9pQ status=200
 
 | Endpoint | What |
 |---|---|
+| `GET /health` | `200 ok` while MySQL answers a ping within 1s, `503` otherwise. Compose uses it as the app's healthcheck. It is a readiness check: when MySQL is down, restarting the app doesn't help, so don't wire it to a restart. |
 | `GET /metrics` | Prometheus text format. `pastebin_http_request_duration_seconds` is a latency histogram by method, route and status. `go_sql_*` is the DB pool: open, in use and idle connections, wait count and wait time. Go runtime and process metrics are included too. |
 
 ## Develop

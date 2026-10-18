@@ -13,6 +13,7 @@ func RegisterAPIRoutes(e *echo.Echo, h *handlers.Handler) {
 	e.POST("/paste", h.CreatePaste) // form submit → redirect to /:id
 	e.GET("/:id", h.ShowPaste)      // read a paste
 
+	e.GET("/health", h.Health)                             // 200 while MySQL answers, else 503
 	e.GET("/metrics", echo.WrapHandler(metrics.Handler())) // Prometheus scrape target
 
 	assets := e.Group("/assets", handlers.CacheAssets)

@@ -4,6 +4,7 @@ package handlers_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -23,9 +24,12 @@ import (
 )
 
 type memStore struct {
-	mu     sync.Mutex
-	pastes map[string]paste.Paste
+	mu      sync.Mutex
+	pastes  map[string]paste.Paste
+	pingErr error // what Ping returns, for the /health tests
 }
+
+func (m *memStore) Ping(context.Context) error { return m.pingErr }
 
 func (m *memStore) Create(_ context.Context, p paste.Paste) error {
 	m.mu.Lock()
@@ -50,7 +54,7 @@ func (m *memStore) Get(_ context.Context, id string) (paste.Paste, error) {
 func newTestServer(t *testing.T) (*httptest.Server, *memStore) {
 	t.Helper()
 	store := &memStore{pastes: map[string]paste.Paste{}}
-	h := handlers.New(paste.NewService(store), "http://paste.test", slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h := handlers.New(paste.NewService(store), store, "http://paste.test", slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	e := echo.New()
 	e.Renderer = handlers.NewRenderer()
@@ -218,6 +222,22 @@ func TestUnknownLanguageIsRejected(t *testing.T) {
 	}
 	if len(store.pastes) != 0 {
 		t.Fatal("a paste was stored despite the unknown language")
+	}
+}
+
+func TestHealthFollowsTheDatabase(t *testing.T) {
+	srv, store := newTestServer(t)
+	if resp, body := get(t, srv.URL+"/health"); resp.StatusCode != http.StatusOK || body != "ok" {
+		t.Fatalf("healthy: status %d, body %q", resp.StatusCode, body)
+	}
+
+	store.pingErr = errors.New("connection refused")
+	resp, _ := get(t, srv.URL+"/health")
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("database down: status %d, want 503", resp.StatusCode)
+	}
+	if cc := resp.Header.Get("Cache-Control"); cc != "no-store" {
+		t.Errorf("Cache-Control = %q, want no-store", cc)
 	}
 }
 
