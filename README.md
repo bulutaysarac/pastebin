@@ -45,6 +45,8 @@ make remove   # delete containers, network, MySQL data volume and the app image
 
 `./scripts/smoke.sh` runs an end-to-end check against the running stack.
 
+`scripts/load/` holds the [k6](https://k6.io) load tests: `read.js` for readers and `write.js` for authors. Each file starts with its usage, e.g. `k6 run -e VUS=300 scripts/load/read.js`.
+
 ## Configuration
 
 | Variable | Default |
