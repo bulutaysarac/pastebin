@@ -221,6 +221,14 @@ func TestUnknownLanguageIsRejected(t *testing.T) {
 	}
 }
 
+func TestMetricsAreServed(t *testing.T) {
+	srv, _ := newTestServer(t)
+	resp, body := get(t, srv.URL+"/metrics")
+	if resp.StatusCode != http.StatusOK || !strings.Contains(body, "go_goroutines") {
+		t.Fatalf("/metrics: status %d, body without go_goroutines", resp.StatusCode)
+	}
+}
+
 func TestAssetsAreServedWithCacheHeader(t *testing.T) {
 	srv, _ := newTestServer(t)
 	for _, path := range []string{"/assets/app.css", "/assets/app.js", "/assets/vendor/highlight.min.js", "/assets/vendor/github-dark.min.css"} {

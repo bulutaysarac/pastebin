@@ -56,6 +56,9 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 
 func (s *Store) Close() error { return s.db.Close() }
 
+// DB exposes the connection pool so its stats can be reported.
+func (s *Store) DB() *sql.DB { return s.db }
+
 func (s *Store) Create(ctx context.Context, p paste.Paste) error {
 	_, err := s.db.ExecContext(ctx,
 		"INSERT INTO pastes (id, content, language, expires_at) VALUES (?, ?, ?, ?)",

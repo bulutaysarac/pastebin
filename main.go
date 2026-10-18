@@ -17,6 +17,7 @@ func main() {
 
 	db := providers.ConnectDatabase()
 	defer db.Close()
+	providers.RegisterMetrics(db)
 
 	providers.RegisterRenderer(e)
 	providers.RegisterMiddlewares(e)

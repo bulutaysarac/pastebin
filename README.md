@@ -56,6 +56,14 @@ make remove   # delete containers, network, MySQL data volume and the app image
 | `DB_HOST` / `DB_PORT` | `localhost` / `3306` |
 | `DB_USER` / `DB_PASSWORD` / `DB_NAME` | `pastebin` / `pastebin` / `pastebin` |
 
+## Observability
+
+Every request is logged, e.g. `INFO request method=GET path=/aB3xK9pQ status=200 latency=1.2ms`.
+
+| Endpoint | What |
+|---|---|
+| `GET /metrics` | Prometheus text format. `pastebin_http_request_duration_seconds` is a latency histogram by method, route and status. `go_sql_*` is the DB pool: open, in use and idle connections, wait count and wait time. Go runtime and process metrics are included too. |
+
 ## Develop
 
 ```sh
@@ -70,7 +78,8 @@ go test ./...
 | `environments` | settings read from env vars |
 | `routes/api.go` | URL → handler mapping |
 | `handlers` | request handling, HTML templates, static assets (CSS, JS, highlight.js), `Cache-Control` |
-| `internal/providers` | startup steps: DB connection, middlewares, renderer, server start/shutdown |
+| `internal/providers` | startup steps: DB connection, metrics, middlewares (request log), renderer, server start/shutdown |
+| `internal/metrics` | what `/metrics` reports: request latency histogram, DB pool stats |
 | `internal/idgen` | random 8-char base62 IDs |
 | `internal/paste` | create with a unique ID (retries on collision), read with expiry check |
 | `internal/mysqlstore` | MySQL implementation of the paste store |
