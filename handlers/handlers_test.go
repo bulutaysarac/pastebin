@@ -51,7 +51,7 @@ func (m *memStore) Get(_ context.Context, id string) (paste.Paste, error) {
 	return p, nil
 }
 
-func newTestServer(t *testing.T) (*httptest.Server, *memStore) {
+func newTestApp(t *testing.T) (*echo.Echo, *memStore) {
 	t.Helper()
 	store := &memStore{pastes: map[string]paste.Paste{}}
 	h := handlers.New(paste.NewService(store), store, "http://paste.test", slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -59,7 +59,12 @@ func newTestServer(t *testing.T) (*httptest.Server, *memStore) {
 	e := echo.New()
 	e.Renderer = handlers.NewRenderer()
 	routes.RegisterAPIRoutes(e, h)
+	return e, store
+}
 
+func newTestServer(t *testing.T) (*httptest.Server, *memStore) {
+	t.Helper()
+	e, store := newTestApp(t)
 	srv := httptest.NewServer(e)
 	t.Cleanup(srv.Close)
 	return srv, store
@@ -101,7 +106,7 @@ func TestHomePageShowsForm(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
-	for _, want := range []string{`action="/paste"`, `name="content"`, `name="expires"`, `value="1h"`, `name="language"`, `value="sql"`, `id="theme-toggle"`} {
+	for _, want := range []string{`action="/paste"`, `name="content"`, `name="expires"`, `value="1h"`, `name="language"`, `value="sql"`, `id="theme-toggle"`, fmt.Sprintf("Up to %d KiB", paste.MaxContentBytes>>10)} {
 		if !strings.Contains(body, want) {
 			t.Errorf("home page is missing %s", want)
 		}
@@ -198,6 +203,53 @@ func TestEmptyPasteIsRejected(t *testing.T) {
 	}
 	if len(store.pastes) != 0 {
 		t.Fatal("an empty paste was stored")
+	}
+}
+
+func TestPasteOverTheCapIsRejected(t *testing.T) {
+	srv, store := newTestServer(t)
+	resp := postPaste(t, srv, strings.Repeat("x", paste.MaxContentBytes+1), "never")
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusRequestEntityTooLarge || string(body) != paste.ErrTooLarge.Error() {
+		t.Fatalf("status %d, body %q; want 413, %q", resp.StatusCode, body, paste.ErrTooLarge)
+	}
+	if len(store.pastes) != 0 {
+		t.Fatal("a paste over the cap was stored")
+	}
+}
+
+func TestPasteAtTheCapFitsTheBodyLimitWhenEncoded(t *testing.T) {
+	srv, store := newTestServer(t)
+	// Every "%" is sent as "%25", three bytes on the wire for one stored.
+	resp := postPaste(t, srv, strings.Repeat("%", paste.MaxContentBytes), "never")
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("status %d, want 303", resp.StatusCode)
+	}
+	if got := len(store.pastes[resp.Header.Get("Location")[1:]].Content); got != paste.MaxContentBytes {
+		t.Fatalf("stored %d bytes, want %d", got, paste.MaxContentBytes)
+	}
+}
+
+func TestOversizedBodyIsRejectedBeforeItIsParsed(t *testing.T) {
+	// Straight to the router, not over a connection: the server answers
+	// before the client has sent the whole body.
+	e, store := newTestApp(t)
+	// The content itself is fine; only the body limit can refuse this.
+	body := url.Values{"content": {"hello"}, "expires": {"never"}, "padding": {strings.Repeat("x", 2<<20)}}.Encode()
+	for name, r := range map[string]io.Reader{
+		"with Content-Length": strings.NewReader(body),
+		"chunked":             struct{ io.Reader }{strings.NewReader(body)},
+	} {
+		req := httptest.NewRequest(http.MethodPost, "/paste", r)
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != http.StatusRequestEntityTooLarge || rec.Body.String() != paste.ErrTooLarge.Error() {
+			t.Errorf("%s: status %d, body %q; want 413, %q", name, rec.Code, rec.Body, paste.ErrTooLarge)
+		}
+	}
+	if len(store.pastes) != 0 {
+		t.Fatal("an oversized body was stored")
 	}
 }
 
