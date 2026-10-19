@@ -58,6 +58,30 @@ services:
     image: prom/node-exporter:v1.12.1
     restart: unless-stopped
 
+  grafana:
+    image: grafana/grafana:13.2.4
+    ports:
+      - "3000:3000"
+    environment:
+      # Local development only: anyone can view, admin/admin can sign in.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/machine-resources.json
+      # The dashboards only use built-in panels and the built-in Prometheus
+      # source, so starting up needs nothing from grafana.com.
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+    volumes:
+      # Only the folders we fill: mounting over all of provisioning/ hides the
+      # image's empty plugins/ and alerting/ folders and Grafana logs errors.
+      - ./monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/dashboards:/etc/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
 volumes:
   mysql-data:
   prometheus-data:

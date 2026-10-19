@@ -73,6 +73,9 @@ Every request is logged, e.g. `INFO request method=GET path=/aB3xK9pQ status=200
 |---|---|
 | Prometheus, http://localhost:9090 | Scrapes the app's `/metrics` and node-exporter every 5s, so a 30s load test gets enough points. Data survives `make stop`; `make remove` deletes it. |
 | node-exporter | CPU, memory and load of the machine the containers run on. Under Docker Desktop that machine is its Linux VM (the CPUs and memory given to Docker), not the Mac. Its network metrics only see its own container. |
+| Grafana, http://localhost:3000 | Dashboards, open without signing in (admin/admin to sign in). **Machine resources** is the home page: CPU, memory and load of the machine, and the app process's CPU and memory next to it. |
+
+The dashboards are JSON files in `monitoring/grafana/dashboards`. Grafana doesn't save changes made in its UI; to change a dashboard, edit the file (or export it from the UI into the file). Grafana rereads the files every 10 seconds.
 
 ## Develop
 
@@ -94,4 +97,4 @@ go test ./...
 | `internal/paste` | create with a unique ID (retries on collision), read with expiry check |
 | `internal/mysqlstore` | MySQL implementation of the paste store |
 | `migrations` | schema, applied by the MySQL container on first start |
-| `monitoring` | Prometheus scrape config |
+| `monitoring` | Prometheus scrape config; Grafana data source and dashboards, loaded from files at start |
