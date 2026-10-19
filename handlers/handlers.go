@@ -104,6 +104,9 @@ func (h *Handler) CreatePaste(c echo.Context) error {
 
 	content := form.Get("content")
 	p, err := h.pastes.Create(c.Request().Context(), content, language.Value, ttl)
+	if errors.Is(err, paste.ErrEmpty) {
+		return c.String(http.StatusBadRequest, err.Error())
+	}
 	if err != nil {
 		h.log.Error("create paste", "err", err)
 		return c.String(http.StatusInternalServerError, "could not save paste")

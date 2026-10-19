@@ -44,7 +44,9 @@ code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/NOPE1234")
 [ "$code" = 404 ] || fail "unknown id returned $code"
 code=$(curl -s -o /dev/null -w '%{http_code}' --data 'content=x&expires=forever' "$BASE/paste")
 [ "$code" = 400 ] || fail "bad expiry returned $code"
-echo "ok   unknown id → 404, bad expiry → 400"
+code=$(curl -s -o /dev/null -w '%{http_code}' --data-urlencode 'content=  ' --data-urlencode 'expires=never' "$BASE/paste")
+[ "$code" = 400 ] || fail "whitespace-only paste returned $code"
+echo "ok   unknown id → 404, bad expiry → 400, empty paste → 400"
 
 # 7. Language is stored and handed to the browser highlighter
 loc=$(curl -s -o /dev/null -w '%{redirect_url}' --data-urlencode 'content=SELECT id FROM pastes;' \

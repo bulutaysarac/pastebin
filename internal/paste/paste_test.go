@@ -89,6 +89,20 @@ func TestCreateGivesUpAfterMaxAttempts(t *testing.T) {
 	}
 }
 
+func TestCreateRejectsEmptyContent(t *testing.T) {
+	store := newMemStore()
+	s := newTestService(store, t0)
+
+	for _, content := range []string{"", " ", "\r\n\t \n"} {
+		if _, err := s.Create(context.Background(), content, "plaintext", 0); !errors.Is(err, ErrEmpty) {
+			t.Errorf("Create(%q): err = %v, want ErrEmpty", content, err)
+		}
+	}
+	if len(store.pastes) != 0 {
+		t.Fatalf("store has %d pastes, want none", len(store.pastes))
+	}
+}
+
 func TestGetHidesExpiredPastes(t *testing.T) {
 	store := newMemStore()
 	exp := t0

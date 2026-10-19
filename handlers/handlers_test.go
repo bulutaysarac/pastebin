@@ -187,6 +187,20 @@ func TestUnknownExpiryIsRejected(t *testing.T) {
 	}
 }
 
+func TestEmptyPasteIsRejected(t *testing.T) {
+	srv, store := newTestServer(t)
+	for _, content := range []string{"", " \r\n\t "} {
+		resp := postPaste(t, srv, content, "never")
+		body, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode != http.StatusBadRequest || string(body) != "paste is empty" {
+			t.Errorf("content %q: status %d, body %q; want 400, paste is empty", content, resp.StatusCode, body)
+		}
+	}
+	if len(store.pastes) != 0 {
+		t.Fatal("an empty paste was stored")
+	}
+}
+
 func TestLanguageIsStoredAndRendered(t *testing.T) {
 	srv, store := newTestServer(t)
 	resp := postForm(t, srv, url.Values{"content": {"SELECT 1;"}, "expires": {"never"}, "language": {"sql"}})
