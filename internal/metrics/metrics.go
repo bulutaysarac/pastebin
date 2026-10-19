@@ -31,6 +31,32 @@ func ObserveRequest(method, route string, status int, latency time.Duration) {
 	requestDuration.WithLabelValues(knownMethod(method), route, strconv.Itoa(status)).Observe(latency.Seconds())
 }
 
+var pastesCreated = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "pastebin_pastes_created_total",
+	Help: "Pastes stored, by language and expiry option.",
+}, []string{"language", "expires"})
+
+var pasteSize = promauto.NewHistogram(prometheus.HistogramOpts{
+	Name: "pastebin_paste_size_bytes",
+	Help: "Content size of stored pastes.",
+	// 256 B up to 16 MiB, the most a MEDIUMTEXT column holds.
+	Buckets: prometheus.ExponentialBuckets(256, 4, 9),
+})
+
+// InitPasteCreated creates the series for one language and expiry pair at 0.
+// Prometheus' increase() can't see the step from "no series" to 1, so without
+// this the first paste of each pair never shows up on the dashboards.
+func InitPasteCreated(language, expires string) {
+	pastesCreated.WithLabelValues(language, expires)
+}
+
+// ObservePasteCreated records one stored paste. language and expires must be
+// values from the form's fixed option lists, so they can't create new series.
+func ObservePasteCreated(language, expires string, sizeBytes int) {
+	pastesCreated.WithLabelValues(language, expires).Inc()
+	pasteSize.Observe(float64(sizeBytes))
+}
+
 // knownMethod folds anything but the standard methods into "OTHER": clients
 // choose the method string, so it must not be able to create new series.
 func knownMethod(m string) string {

@@ -1,0 +1,9 @@
+apiVersion: 1
+
+providers:
+  - name: pastebin
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false # the JSON files in the repo are the source of truth
+    options:
+      path: /etc/grafana/dashboards

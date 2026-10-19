@@ -11,6 +11,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 
+	"github.com/bulutaysarac/pastebin/internal/metrics"
 	"github.com/bulutaysarac/pastebin/internal/paste"
 )
 
@@ -67,6 +68,11 @@ type Handler struct {
 }
 
 func New(pastes *paste.Service, db Pinger, baseURL string, log *slog.Logger) *Handler {
+	for _, l := range languageOptions {
+		for _, e := range expiryOptions {
+			metrics.InitPasteCreated(l.Value, e.Value)
+		}
+	}
 	return &Handler{pastes: pastes, db: db, baseURL: baseURL, log: log}
 }
 
@@ -85,7 +91,8 @@ func (h *Handler) CreatePaste(c echo.Context) error {
 		return c.String(http.StatusBadRequest, "could not read form")
 	}
 
-	ttl, ok := lookupExpiry(form.Get("expires"))
+	expires := form.Get("expires")
+	ttl, ok := lookupExpiry(expires)
 	if !ok {
 		return c.String(http.StatusBadRequest, "unknown expiry option")
 	}
@@ -95,11 +102,13 @@ func (h *Handler) CreatePaste(c echo.Context) error {
 		return c.String(http.StatusBadRequest, "unknown language")
 	}
 
-	p, err := h.pastes.Create(c.Request().Context(), form.Get("content"), language.Value, ttl)
+	content := form.Get("content")
+	p, err := h.pastes.Create(c.Request().Context(), content, language.Value, ttl)
 	if err != nil {
 		h.log.Error("create paste", "err", err)
 		return c.String(http.StatusInternalServerError, "could not save paste")
 	}
+	metrics.ObservePasteCreated(language.Value, expires, len(content))
 
 	// Post/Redirect/Get: refreshing the next page re-reads the paste instead
 	// of submitting the form a second time.

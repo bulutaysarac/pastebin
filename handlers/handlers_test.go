@@ -249,6 +249,30 @@ func TestMetricsAreServed(t *testing.T) {
 	}
 }
 
+func TestOnlyStoredPastesAreCounted(t *testing.T) {
+	srv, _ := newTestServer(t)
+	// No other test uses this language and expiry pair, so the count is this test's alone.
+	postForm(t, srv, url.Values{"content": {"fn main() {}"}, "expires": {"1w"}, "language": {"rust"}})
+	postForm(t, srv, url.Values{"content": {"fn main() {}"}, "expires": {"forever"}, "language": {"rust"}})
+
+	_, body := get(t, srv.URL+"/metrics")
+	if want := `pastebin_pastes_created_total{expires="1w",language="rust"} 1`; !strings.Contains(body, want) {
+		t.Errorf("/metrics is missing %s", want)
+	}
+	if strings.Contains(body, `expires="forever"`) {
+		t.Error("a rejected expiry value became a label")
+	}
+}
+
+func TestEveryOptionPairIsCountedFromZero(t *testing.T) {
+	srv, _ := newTestServer(t)
+	_, body := get(t, srv.URL+"/metrics")
+	// No test creates a PHP paste that expires in a day.
+	if want := `pastebin_pastes_created_total{expires="1d",language="php"} 0`; !strings.Contains(body, want) {
+		t.Errorf("/metrics is missing %s", want)
+	}
+}
+
 func TestAssetsAreServedWithCacheHeader(t *testing.T) {
 	srv, _ := newTestServer(t)
 	for _, path := range []string{"/assets/app.css", "/assets/app.js", "/assets/vendor/highlight.min.js", "/assets/vendor/github-dark.min.css"} {
