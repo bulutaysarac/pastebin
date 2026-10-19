@@ -42,5 +42,22 @@ services:
       timeout: 3s
       retries: 30
 
+  prometheus:
+    image: prom/prometheus:v3.13.4
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    restart: unless-stopped
+
+  # No host mounts: /proc/stat, /proc/meminfo and /proc/loadavg are not
+  # namespaced, so CPU, memory and load are the whole machine's. Network
+  # metrics are this container's own and say nothing about the machine.
+  node-exporter:
+    image: prom/node-exporter:v1.12.1
+    restart: unless-stopped
+
 volumes:
   mysql-data:
+  prometheus-data:

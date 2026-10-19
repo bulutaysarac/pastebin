@@ -38,9 +38,9 @@ Syntax highlighting runs in the browser (highlight.js, vendored under `handlers/
 
 ```sh
 make build    # build the app image
-make run      # start app + MySQL in the background (rebuilds if code changed) → http://localhost:8080
+make run      # start app, MySQL and monitoring in the background (rebuilds if code changed) → http://localhost:8080
 make stop     # stop the containers, keep them and the data
-make remove   # delete containers, network, MySQL data volume and the app image
+make remove   # delete containers, network, data volumes (MySQL, Prometheus) and the app image
 ```
 
 `./scripts/smoke.sh` runs an end-to-end check against the running stack.
@@ -65,6 +65,15 @@ Every request is logged, e.g. `INFO request method=GET path=/aB3xK9pQ status=200
 | `GET /health` | `200 ok` while MySQL answers a ping within 1s, `503` otherwise. Compose uses it as the app's healthcheck. It is a readiness check: when MySQL is down, restarting the app doesn't help, so don't wire it to a restart. |
 | `GET /metrics` | Prometheus text format. `pastebin_http_request_duration_seconds` is a latency histogram by method, route and status. `go_sql_*` is the DB pool: open, in use and idle connections, wait count and wait time. Go runtime and process metrics are included too. |
 
+### Monitoring
+
+`make run` also starts the monitoring stack:
+
+| Service | What |
+|---|---|
+| Prometheus, http://localhost:9090 | Scrapes the app's `/metrics` and node-exporter every 5s, so a 30s load test gets enough points. Data survives `make stop`; `make remove` deletes it. |
+| node-exporter | CPU, memory and load of the machine the containers run on. Under Docker Desktop that machine is its Linux VM (the CPUs and memory given to Docker), not the Mac. Its network metrics only see its own container. |
+
 ## Develop
 
 ```sh
@@ -85,3 +94,4 @@ go test ./...
 | `internal/paste` | create with a unique ID (retries on collision), read with expiry check |
 | `internal/mysqlstore` | MySQL implementation of the paste store |
 | `migrations` | schema, applied by the MySQL container on first start |
+| `monitoring` | Prometheus scrape config |
