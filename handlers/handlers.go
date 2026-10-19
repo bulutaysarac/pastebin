@@ -61,12 +61,13 @@ const maxBrowserCache = 24 * time.Hour
 
 type Handler struct {
 	pastes  *paste.Service
+	db      Pinger
 	baseURL string
 	log     *slog.Logger
 }
 
-func New(pastes *paste.Service, baseURL string, log *slog.Logger) *Handler {
-	return &Handler{pastes: pastes, baseURL: baseURL, log: log}
+func New(pastes *paste.Service, db Pinger, baseURL string, log *slog.Logger) *Handler {
+	return &Handler{pastes: pastes, db: db, baseURL: baseURL, log: log}
 }
 
 // Home renders the form for a new paste.

@@ -17,12 +17,13 @@ func main() {
 
 	db := providers.ConnectDatabase()
 	defer db.Close()
+	providers.RegisterMetrics(db)
 
 	providers.RegisterRenderer(e)
 	providers.RegisterMiddlewares(e)
 
 	pastes := paste.NewService(db)
-	routes.RegisterAPIRoutes(e, handlers.New(pastes, environments.GetApp().BaseURL, slog.Default()))
+	routes.RegisterAPIRoutes(e, handlers.New(pastes, db, environments.GetApp().BaseURL, slog.Default()))
 
 	providers.StartServer(e)
 }
