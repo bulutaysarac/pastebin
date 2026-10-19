@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # End-to-end check against a running stack: docker compose up -d && ./scripts/smoke.sh
+# It sends 7 creates. Under the default limit (a burst of 10, then one every
+# 2s), running it again right away gets 429s; wait 10s between runs.
 set -euo pipefail
 
 BASE="${BASE:-http://localhost:8080}"
