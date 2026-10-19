@@ -40,6 +40,24 @@ func TestObserveRequestLabelsByRouteTemplate(t *testing.T) {
 	}
 }
 
+func TestObservePasteCreatedCountsByOptionAndSize(t *testing.T) {
+	ObservePasteCreated("metrics-test-lang", "1h", 100)
+	ObservePasteCreated("metrics-test-lang", "1h", 1000)
+
+	out := scrape(t)
+	for _, want := range []string{
+		`pastebin_pastes_created_total{expires="1h",language="metrics-test-lang"} 2`,
+		`pastebin_paste_size_bytes_bucket{le="256"} 1`,
+		`pastebin_paste_size_bytes_bucket{le="1024"} 2`,
+		`pastebin_paste_size_bytes_bucket{le="1.6777216e+07"} 2`,
+		`pastebin_paste_size_bytes_sum 1100`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("/metrics is missing %s", want)
+		}
+	}
+}
+
 // nopDriver lets the test build a *sql.DB without a database behind it; the
 // stats collector only reads db.Stats().
 type nopDriver struct{}

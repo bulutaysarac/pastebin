@@ -63,7 +63,7 @@ Every request is logged, e.g. `INFO request method=GET path=/aB3xK9pQ status=200
 | Endpoint | What |
 |---|---|
 | `GET /health` | `200 ok` while MySQL answers a ping within 1s, `503` otherwise. Compose uses it as the app's healthcheck. It is a readiness check: when MySQL is down, restarting the app doesn't help, so don't wire it to a restart. |
-| `GET /metrics` | Prometheus text format. `pastebin_http_request_duration_seconds` is a latency histogram by method, route and status. `go_sql_*` is the DB pool: open, in use and idle connections, wait count and wait time. Go runtime and process metrics are included too. |
+| `GET /metrics` | Prometheus text format. `pastebin_http_request_duration_seconds` is a latency histogram by method, route and status. `pastebin_pastes_created_total` counts stored pastes by language and expiry option, and `pastebin_paste_size_bytes` is their size histogram. `go_sql_*` is the DB pool: open, in use and idle connections, wait count and wait time. Go runtime and process metrics are included too. |
 
 ### Monitoring
 
@@ -92,7 +92,7 @@ go test ./...
 | `routes/api.go` | URL → handler mapping |
 | `handlers` | request handling, HTML templates, static assets (CSS, JS, highlight.js), `Cache-Control` |
 | `internal/providers` | startup steps: DB connection, metrics, middlewares (request log), renderer, server start/shutdown |
-| `internal/metrics` | what `/metrics` reports: request latency histogram, DB pool stats |
+| `internal/metrics` | what `/metrics` reports: request latency histogram, created pastes and their size, DB pool stats |
 | `internal/idgen` | random 8-char base62 IDs |
 | `internal/paste` | create with a unique ID (retries on collision), read with expiry check |
 | `internal/mysqlstore` | MySQL implementation of the paste store |
