@@ -68,6 +68,11 @@ type Handler struct {
 }
 
 func New(pastes *paste.Service, db Pinger, baseURL string, log *slog.Logger) *Handler {
+	for _, l := range languageOptions {
+		for _, e := range expiryOptions {
+			metrics.InitPasteCreated(l.Value, e.Value)
+		}
+	}
 	return &Handler{pastes: pastes, db: db, baseURL: baseURL, log: log}
 }
 

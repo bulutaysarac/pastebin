@@ -43,6 +43,13 @@ var pasteSize = promauto.NewHistogram(prometheus.HistogramOpts{
 	Buckets: prometheus.ExponentialBuckets(256, 4, 9),
 })
 
+// InitPasteCreated creates the series for one language and expiry pair at 0.
+// Prometheus' increase() can't see the step from "no series" to 1, so without
+// this the first paste of each pair never shows up on the dashboards.
+func InitPasteCreated(language, expires string) {
+	pastesCreated.WithLabelValues(language, expires)
+}
+
 // ObservePasteCreated records one stored paste. language and expires must be
 // values from the form's fixed option lists, so they can't create new series.
 func ObservePasteCreated(language, expires string, sizeBytes int) {

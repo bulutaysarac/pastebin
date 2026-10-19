@@ -58,6 +58,13 @@ func TestObservePasteCreatedCountsByOptionAndSize(t *testing.T) {
 	}
 }
 
+func TestInitPasteCreatedStartsTheSeriesAtZero(t *testing.T) {
+	InitPasteCreated("metrics-test-init", "1w")
+	if want := `pastebin_pastes_created_total{expires="1w",language="metrics-test-init"} 0`; !strings.Contains(scrape(t), want) {
+		t.Errorf("/metrics is missing %s", want)
+	}
+}
+
 // nopDriver lets the test build a *sql.DB without a database behind it; the
 // stats collector only reads db.Stats().
 type nopDriver struct{}

@@ -264,6 +264,15 @@ func TestOnlyStoredPastesAreCounted(t *testing.T) {
 	}
 }
 
+func TestEveryOptionPairIsCountedFromZero(t *testing.T) {
+	srv, _ := newTestServer(t)
+	_, body := get(t, srv.URL+"/metrics")
+	// No test creates a PHP paste that expires in a day.
+	if want := `pastebin_pastes_created_total{expires="1d",language="php"} 0`; !strings.Contains(body, want) {
+		t.Errorf("/metrics is missing %s", want)
+	}
+}
+
 func TestAssetsAreServedWithCacheHeader(t *testing.T) {
 	srv, _ := newTestServer(t)
 	for _, path := range []string{"/assets/app.css", "/assets/app.js", "/assets/vendor/highlight.min.js", "/assets/vendor/github-dark.min.css"} {
