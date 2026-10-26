@@ -20,6 +20,10 @@ var (
 	// ErrIDTaken is returned by a Store when the ID is already in use.
 	ErrIDTaken = errors.New("paste id already taken")
 
+	// ErrStoreTimeout is returned by a Store when the database gave up on a
+	// statement that ran, or waited for a lock, too long.
+	ErrStoreTimeout = errors.New("database timed out")
+
 	// ErrEmpty is returned by Create for content that is empty or only whitespace.
 	ErrEmpty = errors.New("paste is empty")
 

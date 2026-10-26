@@ -377,6 +377,23 @@ func TestStoreOutlastingTheDeadlineGets503(t *testing.T) {
 	}
 }
 
+func TestDatabaseTimeoutGets503(t *testing.T) {
+	var logs bytes.Buffer
+	e, store := newLoggingTestApp(t, 0, &logs)
+	store.err = fmt.Errorf("%w: lock wait timeout exceeded", paste.ErrStoreTimeout)
+
+	for name, req := range storeRequests(context.Background()) {
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Errorf("%s: status %d, want 503", name, rec.Code)
+		}
+	}
+	if !strings.Contains(logs.String(), "level=WARN") || strings.Contains(logs.String(), "level=ERROR") {
+		t.Errorf("want WARN and no ERROR in the log:\n%s", logs.String())
+	}
+}
+
 func TestClientThatLeftIsNotAServerError(t *testing.T) {
 	var logs bytes.Buffer
 	e, store := newLoggingTestApp(t, 0, &logs)

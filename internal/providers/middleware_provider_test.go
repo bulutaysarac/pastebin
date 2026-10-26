@@ -13,6 +13,7 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"github.com/bulutaysarac/pastebin/internal/metrics"
+	"github.com/bulutaysarac/pastebin/internal/mysqlstore"
 )
 
 // newTestEcho builds a server with the real middlewares and three routes under
@@ -95,6 +96,12 @@ func TestEveryRequestGetsADeadline(t *testing.T) {
 	}
 	if left <= requestTimeout-time.Second || left > requestTimeout {
 		t.Fatalf("deadline in %v, want about %v", left, requestTimeout)
+	}
+}
+
+func TestMySQLGivesUpBeforeTheRequestDeadline(t *testing.T) {
+	if mysqlstore.StatementTimeout >= requestTimeout {
+		t.Fatalf("mysqlstore.StatementTimeout (%v) must be under requestTimeout (%v)", mysqlstore.StatementTimeout, requestTimeout)
 	}
 }
 

@@ -176,9 +176,11 @@ func (h *Handler) storeFailed(c echo.Context, err error, msg, op string, attrs .
 		// The client went away. Nothing is wrong on this side.
 		h.log.Info(op+": client went away", attrs...)
 		return c.NoContent(statusClientClosedRequest)
-	case errors.Is(err, context.DeadlineExceeded) && errors.Is(ctx.Err(), context.DeadlineExceeded):
-		// MySQL, or the wait for a free connection, took the whole deadline.
-		h.log.Warn(op+": deadline exceeded", attrs...)
+	case errors.Is(err, paste.ErrStoreTimeout),
+		errors.Is(err, context.DeadlineExceeded) && errors.Is(ctx.Err(), context.DeadlineExceeded):
+		// MySQL gave up on the statement, or the wait for a free connection
+		// took the whole deadline.
+		h.log.Warn(op+": timed out", attrs...)
 		return c.String(http.StatusServiceUnavailable, msg+" in time, try again")
 	default:
 		h.log.Error(op, attrs...)
