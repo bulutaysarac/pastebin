@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/bulutaysarac/pastebin/internal/idgen"
@@ -18,7 +19,16 @@ var (
 
 	// ErrIDTaken is returned by a Store when the ID is already in use.
 	ErrIDTaken = errors.New("paste id already taken")
+
+	// ErrEmpty is returned by Create for content that is empty or only whitespace.
+	ErrEmpty = errors.New("paste is empty")
+
+	// ErrTooLarge is returned by Create for content over MaxContentBytes.
+	ErrTooLarge = fmt.Errorf("paste is larger than %d KiB", MaxContentBytes>>10)
 )
+
+// MaxContentBytes is the largest paste content Create accepts, in bytes.
+const MaxContentBytes = 512 << 10
 
 // maxIDAttempts bounds how many fresh IDs Create tries before giving up.
 // With 62^8 possible IDs a single retry is already extremely rare.
@@ -58,7 +68,15 @@ func NewService(store Store) *Service {
 }
 
 // Create stores content under a new unique ID. A zero ttl means "never expires".
+// Content that can't be stored is rejected before the store is called.
 func (s *Service) Create(ctx context.Context, content, language string, ttl time.Duration) (Paste, error) {
+	if strings.TrimSpace(content) == "" {
+		return Paste{}, ErrEmpty
+	}
+	if len(content) > MaxContentBytes {
+		return Paste{}, ErrTooLarge
+	}
+
 	p := Paste{Content: content, Language: language}
 	if ttl > 0 {
 		// Truncate to whole seconds: that is all a DATETIME column keeps.

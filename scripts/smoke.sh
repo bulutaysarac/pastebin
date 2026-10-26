@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # End-to-end check against a running stack: docker compose up -d && ./scripts/smoke.sh
+# It sends 7 creates. Under the default limit (a burst of 10, then one every
+# 2s), running it again right away gets 429s; wait 10s between runs.
 set -euo pipefail
 
 BASE="${BASE:-http://localhost:8080}"
@@ -44,7 +46,12 @@ code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/NOPE1234")
 [ "$code" = 404 ] || fail "unknown id returned $code"
 code=$(curl -s -o /dev/null -w '%{http_code}' --data 'content=x&expires=forever' "$BASE/paste")
 [ "$code" = 400 ] || fail "bad expiry returned $code"
-echo "ok   unknown id → 404, bad expiry → 400"
+code=$(curl -s -o /dev/null -w '%{http_code}' --data-urlencode 'content=  ' --data-urlencode 'expires=never' "$BASE/paste")
+[ "$code" = 400 ] || fail "whitespace-only paste returned $code"
+code=$(head -c $((512 * 1024 + 1)) /dev/zero | tr '\0' x | curl -s -o /dev/null -w '%{http_code}' \
+  --data-urlencode 'content@-' --data-urlencode 'expires=never' "$BASE/paste")
+[ "$code" = 413 ] || fail "paste over 512 KiB returned $code"
+echo "ok   unknown id → 404, bad expiry → 400, empty paste → 400, over 512 KiB → 413"
 
 # 7. Language is stored and handed to the browser highlighter
 loc=$(curl -s -o /dev/null -w '%{redirect_url}' --data-urlencode 'content=SELECT id FROM pastes;' \

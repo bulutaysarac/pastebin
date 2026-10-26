@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -51,15 +52,22 @@ func (m *memStore) Get(_ context.Context, id string) (paste.Paste, error) {
 	return p, nil
 }
 
-func newTestServer(t *testing.T) (*httptest.Server, *memStore) {
+// newTestApp builds the app over an in-memory store. createsPerMinute is the
+// create rate limit; 0 turns it off.
+func newTestApp(t *testing.T, createsPerMinute int) (*echo.Echo, *memStore) {
 	t.Helper()
 	store := &memStore{pastes: map[string]paste.Paste{}}
 	h := handlers.New(paste.NewService(store), store, "http://paste.test", slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	e := echo.New()
 	e.Renderer = handlers.NewRenderer()
-	routes.RegisterAPIRoutes(e, h)
+	routes.RegisterAPIRoutes(e, h, createsPerMinute)
+	return e, store
+}
 
+func newTestServer(t *testing.T) (*httptest.Server, *memStore) {
+	t.Helper()
+	e, store := newTestApp(t, 0)
 	srv := httptest.NewServer(e)
 	t.Cleanup(srv.Close)
 	return srv, store
@@ -101,7 +109,7 @@ func TestHomePageShowsForm(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
-	for _, want := range []string{`action="/paste"`, `name="content"`, `name="expires"`, `value="1h"`, `name="language"`, `value="sql"`, `id="theme-toggle"`} {
+	for _, want := range []string{`action="/paste"`, `name="content"`, `name="expires"`, `value="1h"`, `name="language"`, `value="sql"`, `id="theme-toggle"`, fmt.Sprintf("Up to %d KiB", paste.MaxContentBytes>>10)} {
 		if !strings.Contains(body, want) {
 			t.Errorf("home page is missing %s", want)
 		}
@@ -184,6 +192,136 @@ func TestUnknownExpiryIsRejected(t *testing.T) {
 	}
 	if len(store.pastes) != 0 {
 		t.Fatal("a paste was stored despite the bad expiry value")
+	}
+}
+
+func TestEmptyPasteIsRejected(t *testing.T) {
+	srv, store := newTestServer(t)
+	for _, content := range []string{"", " \r\n\t "} {
+		resp := postPaste(t, srv, content, "never")
+		body, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode != http.StatusBadRequest || string(body) != "paste is empty" {
+			t.Errorf("content %q: status %d, body %q; want 400, paste is empty", content, resp.StatusCode, body)
+		}
+	}
+	if len(store.pastes) != 0 {
+		t.Fatal("an empty paste was stored")
+	}
+}
+
+func TestPasteOverTheCapIsRejected(t *testing.T) {
+	srv, store := newTestServer(t)
+	resp := postPaste(t, srv, strings.Repeat("x", paste.MaxContentBytes+1), "never")
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusRequestEntityTooLarge || string(body) != paste.ErrTooLarge.Error() {
+		t.Fatalf("status %d, body %q; want 413, %q", resp.StatusCode, body, paste.ErrTooLarge)
+	}
+	if len(store.pastes) != 0 {
+		t.Fatal("a paste over the cap was stored")
+	}
+}
+
+func TestPasteAtTheCapFitsTheBodyLimitWhenEncoded(t *testing.T) {
+	srv, store := newTestServer(t)
+	// Every "%" is sent as "%25", three bytes on the wire for one stored.
+	resp := postPaste(t, srv, strings.Repeat("%", paste.MaxContentBytes), "never")
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("status %d, want 303", resp.StatusCode)
+	}
+	if got := len(store.pastes[resp.Header.Get("Location")[1:]].Content); got != paste.MaxContentBytes {
+		t.Fatalf("stored %d bytes, want %d", got, paste.MaxContentBytes)
+	}
+}
+
+func TestOversizedBodyIsRejectedBeforeItIsParsed(t *testing.T) {
+	// Straight to the router, not over a connection: the server answers
+	// before the client has sent the whole body.
+	e, store := newTestApp(t, 0)
+	// The content itself is fine; only the body limit can refuse this.
+	body := url.Values{"content": {"hello"}, "expires": {"never"}, "padding": {strings.Repeat("x", 2<<20)}}.Encode()
+	for name, r := range map[string]io.Reader{
+		"with Content-Length": strings.NewReader(body),
+		"chunked":             struct{ io.Reader }{strings.NewReader(body)},
+	} {
+		req := httptest.NewRequest(http.MethodPost, "/paste", r)
+		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != http.StatusRequestEntityTooLarge || rec.Body.String() != paste.ErrTooLarge.Error() {
+			t.Errorf("%s: status %d, body %q; want 413, %q", name, rec.Code, rec.Body, paste.ErrTooLarge)
+		}
+	}
+	if len(store.pastes) != 0 {
+		t.Fatal("an oversized body was stored")
+	}
+}
+
+// createFrom sends one create straight to the router as if from remoteAddr.
+func createFrom(e *echo.Echo, remoteAddr string, header http.Header) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPost, "/paste", strings.NewReader("content=hi&expires=never"))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
+	maps.Copy(req.Header, header)
+	req.RemoteAddr = remoteAddr
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	return rec
+}
+
+// useBurst spends remoteAddr's burst of 10 creates.
+func useBurst(t *testing.T, e *echo.Echo, remoteAddr string) {
+	t.Helper()
+	for i := range 10 {
+		if rec := createFrom(e, remoteAddr, nil); rec.Code != http.StatusSeeOther {
+			t.Fatalf("create %d of the burst: status %d, want 303", i+1, rec.Code)
+		}
+	}
+}
+
+func TestCreatesPastTheBurstGet429WithRetryAfter(t *testing.T) {
+	// One a minute, so no create comes back while the test runs.
+	e, store := newTestApp(t, 1)
+	useBurst(t, e, "192.0.2.1:40000")
+
+	rec := createFrom(e, "192.0.2.1:40001", nil)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("status %d, want 429", rec.Code)
+	}
+	if got := rec.Header().Get("Retry-After"); got != "60" {
+		t.Errorf("Retry-After = %q, want 60", got)
+	}
+	if !strings.Contains(rec.Body.String(), "try again in 60s") {
+		t.Errorf("body %q does not say when to try again", rec.Body)
+	}
+	if len(store.pastes) != 10 {
+		t.Fatalf("store has %d pastes, want the 10 of the burst", len(store.pastes))
+	}
+}
+
+func TestEachClientIPHasItsOwnLimit(t *testing.T) {
+	e, _ := newTestApp(t, 1)
+	useBurst(t, e, "192.0.2.1:40000")
+
+	if rec := createFrom(e, "192.0.2.2:40000", nil); rec.Code != http.StatusSeeOther {
+		t.Fatalf("another IP: status %d, want 303", rec.Code)
+	}
+}
+
+func TestForwardedHeadersDontResetTheLimit(t *testing.T) {
+	e, _ := newTestApp(t, 1)
+	useBurst(t, e, "192.0.2.1:40000")
+
+	forged := http.Header{"X-Forwarded-For": {"203.0.113.7"}, "X-Real-Ip": {"203.0.113.8"}}
+	if rec := createFrom(e, "192.0.2.1:40000", forged); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("forged X-Forwarded-For: status %d, want 429", rec.Code)
+	}
+}
+
+func TestZeroCreatesPerMinuteTurnsTheLimitOff(t *testing.T) {
+	e, _ := newTestApp(t, 0)
+	for i := range 20 {
+		if rec := createFrom(e, "192.0.2.1:40000", nil); rec.Code != http.StatusSeeOther {
+			t.Fatalf("create %d: status %d, want 303", i+1, rec.Code)
+		}
 	}
 }
 

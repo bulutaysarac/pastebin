@@ -22,8 +22,9 @@ func main() {
 	providers.RegisterRenderer(e)
 	providers.RegisterMiddlewares(e)
 
+	app := environments.GetApp()
 	pastes := paste.NewService(db)
-	routes.RegisterAPIRoutes(e, handlers.New(pastes, db, environments.GetApp().BaseURL, slog.Default()))
+	routes.RegisterAPIRoutes(e, handlers.New(pastes, db, app.BaseURL, slog.Default()), app.CreatesPerMinute)
 
 	providers.StartServer(e)
 }

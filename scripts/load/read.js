@@ -3,6 +3,8 @@
 //   k6 run -e VUS=300 scripts/load/read.js           # more readers than MySQL max_connections
 //   k6 run -e HOT=1 scripts/load/read.js             # every reader opens the same paste
 // k6 has no browser cache, so every request reaches the server.
+// Start the stack with `RATE_LIMIT_CREATES_PER_MINUTE=0 make run`: with the
+// create limit on, setup() stops at the 11th paste with a 429.
 import http from 'k6/http';
 import { check } from 'k6';
 

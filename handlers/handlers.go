@@ -60,6 +60,11 @@ var languageOptions = []languageOption{
 // maxBrowserCache caps the Cache-Control max-age sent with a paste.
 const maxBrowserCache = 24 * time.Hour
 
+// maxFormBytes bounds the POST /paste body before it is parsed. URL encoding
+// turns a byte into up to three ("%E2"), so a paste at the size cap still
+// fits, with room left for the other fields.
+const maxFormBytes = 3*paste.MaxContentBytes + 4<<10
+
 type Handler struct {
 	pastes  *paste.Service
 	db      Pinger
@@ -81,12 +86,22 @@ func (h *Handler) Home(c echo.Context) error {
 	return c.Render(http.StatusOK, "index.html", map[string]any{
 		"Expiries":  expiryOptions,
 		"Languages": languageOptions,
+		"MaxKiB":    paste.MaxContentBytes >> 10,
 	})
 }
 
 // CreatePaste saves the submitted form and redirects to the new paste.
 func (h *Handler) CreatePaste(c echo.Context) error {
+	req := c.Request()
+	// The underlying writer, not c.Response(): only it lets net/http close the
+	// connection instead of reading the rest of an oversized body.
+	req.Body = http.MaxBytesReader(c.Response().Writer, req.Body, maxFormBytes)
+
 	form, err := c.FormParams()
+	var tooLarge *http.MaxBytesError
+	if errors.As(err, &tooLarge) {
+		return c.String(http.StatusRequestEntityTooLarge, paste.ErrTooLarge.Error())
+	}
 	if err != nil {
 		return c.String(http.StatusBadRequest, "could not read form")
 	}
@@ -104,6 +119,12 @@ func (h *Handler) CreatePaste(c echo.Context) error {
 
 	content := form.Get("content")
 	p, err := h.pastes.Create(c.Request().Context(), content, language.Value, ttl)
+	if errors.Is(err, paste.ErrEmpty) {
+		return c.String(http.StatusBadRequest, err.Error())
+	}
+	if errors.Is(err, paste.ErrTooLarge) {
+		return c.String(http.StatusRequestEntityTooLarge, err.Error())
+	}
 	if err != nil {
 		h.log.Error("create paste", "err", err)
 		return c.String(http.StatusInternalServerError, "could not save paste")

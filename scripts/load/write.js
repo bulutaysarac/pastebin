@@ -1,6 +1,8 @@
 // Write load: authors creating pastes as fast as the server accepts them.
 //   k6 run scripts/load/write.js                     # 20 VUs, 30s
 //   k6 run -e VUS=100 -e DURATION=1m scripts/load/write.js
+// Start the stack with `RATE_LIMIT_CREATES_PER_MINUTE=0 make run`: with the
+// create limit on, all but the first 10 creates get a 429.
 import http from 'k6/http';
 import { check } from 'k6';
 

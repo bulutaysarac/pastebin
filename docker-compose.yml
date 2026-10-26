@@ -13,6 +13,8 @@ services:
       DB_USER: pastebin
       DB_PASSWORD: pastebin
       DB_NAME: pastebin
+      # `RATE_LIMIT_CREATES_PER_MINUTE=0 make run` turns it off for load tests.
+      RATE_LIMIT_CREATES_PER_MINUTE: ${RATE_LIMIT_CREATES_PER_MINUTE:-30}
     depends_on:
       mysql:
         condition: service_healthy

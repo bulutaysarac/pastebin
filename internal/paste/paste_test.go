@@ -3,6 +3,7 @@ package paste
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -86,6 +87,35 @@ func TestCreateGivesUpAfterMaxAttempts(t *testing.T) {
 
 	if _, err := s.Create(context.Background(), "hello", "plaintext", 0); err == nil {
 		t.Fatal("expected an error when every id collides")
+	}
+}
+
+func TestCreateRejectsEmptyContent(t *testing.T) {
+	store := newMemStore()
+	s := newTestService(store, t0)
+
+	for _, content := range []string{"", " ", "\r\n\t \n"} {
+		if _, err := s.Create(context.Background(), content, "plaintext", 0); !errors.Is(err, ErrEmpty) {
+			t.Errorf("Create(%q): err = %v, want ErrEmpty", content, err)
+		}
+	}
+	if len(store.pastes) != 0 {
+		t.Fatalf("store has %d pastes, want none", len(store.pastes))
+	}
+}
+
+func TestCreateRejectsContentOverTheCap(t *testing.T) {
+	store := newMemStore()
+	s := newTestService(store, t0, "AAAAAAAA")
+
+	if _, err := s.Create(context.Background(), strings.Repeat("x", MaxContentBytes+1), "plaintext", 0); !errors.Is(err, ErrTooLarge) {
+		t.Fatalf("one byte over the cap: err = %v, want ErrTooLarge", err)
+	}
+	if len(store.pastes) != 0 {
+		t.Fatalf("store has %d pastes, want none", len(store.pastes))
+	}
+	if _, err := s.Create(context.Background(), strings.Repeat("x", MaxContentBytes), "plaintext", 0); err != nil {
+		t.Fatalf("exactly at the cap: err = %v, want nil", err)
 	}
 }
 

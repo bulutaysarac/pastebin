@@ -10,13 +10,21 @@ This is a working implementation of the Pastebin design from
 ```mermaid
 flowchart LR
     Author["Author<br/>(user)"] --> Home["Home page<br/>input · syntax · expires · share"]
-    Home -->|"POST /paste"| App["App server"]
+    Home -->|"POST /paste"| Limits{"Limits<br/>30/min per IP · 512 KiB · not empty"}
+    Limits -.->|"429 · 413 · 400"| Author
+    Limits -->|ok| App["App server"]
     App <-->|"new id"| IDGen["ID generator<br/>8 chars, unique"]
     App -->|"INSERT id, content, language, expires_at"| DB[("MySQL")]
     App -.->|"303 redirect to /xxxxxxxx"| Author
 ```
 
 The home page form posts to `POST /paste`. The server generates an 8-character ID, saves the paste to MySQL, and redirects to `/<id>`, where the share link is shown.
+
+Limits are checked before anything reaches MySQL:
+
+- **Rate:** one client IP may create 30 pastes a minute, after a burst of 10. Past that it gets `429` with `Retry-After`. The IP is the TCP peer's; `X-Forwarded-For` is ignored, because nothing sits in front of the app.
+- **Size:** content over 512 KiB gets `413`. The body is cut off before it is parsed, at three times that plus 4 KiB, because URL encoding can triple a byte.
+- **Empty:** content that is empty or only whitespace gets `400`.
 
 ### Read flow
 
@@ -45,7 +53,7 @@ make remove   # delete containers, network, data volumes (MySQL, Prometheus) and
 
 `./scripts/smoke.sh` runs an end-to-end check against the running stack.
 
-`scripts/load/` holds the [k6](https://k6.io) load tests: `read.js` for readers and `write.js` for authors. Each file starts with its usage, e.g. `k6 run -e VUS=300 scripts/load/read.js`.
+`scripts/load/` holds the [k6](https://k6.io) load tests: `read.js` for readers and `write.js` for authors. Each file starts with its usage, e.g. `k6 run -e VUS=300 scripts/load/read.js`. k6 sends everything from one IP, so start the stack with the create limit off first: `RATE_LIMIT_CREATES_PER_MINUTE=0 make run`.
 
 ## Configuration
 
@@ -55,6 +63,7 @@ make remove   # delete containers, network, data volumes (MySQL, Prometheus) and
 | `BASE_URL` | `http://localhost:8080` |
 | `DB_HOST` / `DB_PORT` | `localhost` / `3306` |
 | `DB_USER` / `DB_PASSWORD` / `DB_NAME` | `pastebin` / `pastebin` / `pastebin` |
+| `RATE_LIMIT_CREATES_PER_MINUTE` | `30` per client IP, after a burst of 10. `0` turns the limit off. |
 
 ## Observability
 
@@ -92,11 +101,11 @@ go test ./...
 | `main.go` | entrypoint: wires the pieces together in order |
 | `environments` | settings read from env vars |
 | `routes/api.go` | URL → handler mapping |
-| `handlers` | request handling, HTML templates, static assets (CSS, JS, highlight.js), `Cache-Control` |
+| `handlers` | request handling, HTML templates, static assets (CSS, JS, highlight.js), `Cache-Control`, create rate limit and body size limit |
 | `internal/providers` | startup steps: DB connection, metrics, middlewares (request log), renderer, server start/shutdown |
 | `internal/metrics` | what `/metrics` reports: request latency histogram, created pastes and their size, DB pool stats |
 | `internal/idgen` | random 8-char base62 IDs |
-| `internal/paste` | create with a unique ID (retries on collision), read with expiry check |
+| `internal/paste` | create with a unique ID (retries on collision), rejecting empty content and content over 512 KiB; read with expiry check |
 | `internal/mysqlstore` | MySQL implementation of the paste store |
 | `migrations` | schema, applied by the MySQL container on first start |
 | `monitoring` | Prometheus scrape config; Grafana data source and dashboards, loaded from files at start |
