@@ -10,6 +10,6 @@ func GetApp() App {
 	return App{
 		Port:             GetEnv("PORT", "8080"),
 		BaseURL:          GetEnv("BASE_URL", "http://localhost:8080"),
-		CreatesPerMinute: GetEnvInt("RATE_LIMIT_CREATES_PER_MINUTE", 30),
+		CreatesPerMinute: GetEnvInt("RATE_LIMIT_CREATES_PER_MINUTE", 30, 0),
 	}
 }

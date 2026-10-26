@@ -20,10 +20,18 @@ type Store struct {
 	db *sql.DB
 }
 
+// Pool sizes the connection pool. Every field must be positive: database/sql
+// reads a zero as "unlimited", "keep none" and "forever".
+type Pool struct {
+	MaxOpenConns    int
+	MaxIdleConns    int
+	ConnMaxLifetime time.Duration
+}
+
 // Open connects to MySQL and keeps pinging until the server answers or ctx ends.
 // On first start the database container takes a while to initialise, so the
 // first few pings are expected to fail.
-func Open(ctx context.Context, dsn string) (*Store, error) {
+func Open(ctx context.Context, dsn string, pool Pool) (*Store, error) {
 	cfg, err := mysql.ParseDSN(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("parse dsn: %w", err)
@@ -37,6 +45,9 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 		return nil, err
 	}
 	db := sql.OpenDB(connector)
+	db.SetMaxOpenConns(pool.MaxOpenConns)
+	db.SetMaxIdleConns(pool.MaxIdleConns)
+	db.SetConnMaxLifetime(pool.ConnMaxLifetime)
 
 	for {
 		pingCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
