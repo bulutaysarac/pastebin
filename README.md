@@ -51,6 +51,30 @@ Nothing waits forever, so a slow client or a stalled MySQL can't pile up connect
 - **MySQL:** each connection tells MySQL to give up on a statement, or on waiting for a lock, after 2s (`max_execution_time`, `lock_wait_timeout`, `innodb_lock_wait_timeout`). This has to come before the request deadline: a cancelled request only closes the app's end, and MySQL would keep waiting on its own.
 - **Pool:** at most 50 connections, under MySQL's `max_connections` of 151 with room for a second instance. Requests past that wait for a free one. Idle connections are kept for reuse, so a burst doesn't open and close one per query.
 
+### Schema migrations
+
+```mermaid
+flowchart LR
+    Start["App starts"] --> Connect["Connect to MySQL"]
+    Connect --> Lock{"Lock row in<br/>goose_lock free?"}
+    Lock -->|"no: another instance is migrating"| Lock
+    Lock -->|yes| Apply["Apply pending migrations in order<br/>record each in goose_db_version"]
+    Apply --> Serve["Serve requests"]
+    Apply -.->|"failed: exit, Compose restarts the app"| Start
+```
+
+The schema is the numbered [goose](https://github.com/pressly/goose) SQL files in `migrations/`, embedded in the binary. On start the app applies the ones the database hasn't had yet, before it serves anything, so no request reads a column that isn't there. `make run` on an existing volume brings it up to date; an empty volume gets the whole schema.
+
+Instances that start together take turns: one holds the lock and migrates, the others wait and then find nothing to do. If the holder dies, its 30s lease runs out and another instance takes over.
+
+Writing a migration:
+
+- Add the next number, e.g. `00003_add_something.sql`, starting with `-- +goose Up`. Migrations only go forward: never edit one that has been applied anywhere; to undo it, add another.
+- One statement per file. MySQL commits each DDL statement on its own, so if the second statement of a file fails, the first stays applied and goose records nothing.
+- A new column gets a default or allows `NULL`, so the previous app version keeps working while a deploy or a rollback is under way.
+- Add `ALGORITHM = INSTANT` where MySQL supports it: the column goes into the table's metadata without rewriting the rows, and if it can't, the migration fails instead of rebuilding the table.
+- Migrations run with the same 2s lock wait as requests. An `ALTER` that can't get its table lock in 2s fails and is retried when the app restarts, instead of making every read of that table queue behind it.
+
 ## Run
 
 ```sh
@@ -114,10 +138,10 @@ go test ./...
 | `environments` | settings read from env vars |
 | `routes/api.go` | URL → handler mapping |
 | `handlers` | request handling, HTML templates, static assets (CSS, JS, highlight.js), `Cache-Control`, create rate limit and body size limit |
-| `internal/providers` | startup steps: DB connection, metrics, middlewares (request log, request deadline), renderer, server start/shutdown and its timeouts |
+| `internal/providers` | startup steps: DB connection and migrations, metrics, middlewares (request log, request deadline), renderer, server start/shutdown and its timeouts |
 | `internal/metrics` | what `/metrics` reports: request latency histogram, created pastes and their size, DB pool stats |
 | `internal/idgen` | random 8-char base62 IDs |
 | `internal/paste` | create with a unique ID (retries on collision), rejecting empty content and content over 512 KiB; read with expiry check |
-| `internal/mysqlstore` | MySQL implementation of the paste store: pool size, statement timeout |
-| `migrations` | schema, applied by the MySQL container on first start |
+| `internal/mysqlstore` | MySQL implementation of the paste store: pool size, statement timeout, migrations under a lock |
+| `migrations` | schema as numbered goose SQL files, embedded in the binary and applied at start |
 | `monitoring` | Prometheus scrape config; Grafana data source and dashboards, loaded from files at start |
