@@ -7,11 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"strconv"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
 	"github.com/pressly/goose/v3"
+	"github.com/pressly/goose/v3/lock"
 
 	"github.com/bulutaysarac/pastebin/internal/paste"
 )
@@ -102,8 +104,21 @@ type Migration struct {
 // Migrate applies, in order, the goose migrations in fsys that the database
 // hasn't had yet, and returns them with the schema version it ends at. goose
 // records each applied version in the goose_db_version table.
+//
+// Instances that start together take turns: the first one takes a lock (a row
+// in goose_lock) and migrates, and the others wait for it, then find nothing
+// left to do. If the holder dies, its lease runs out after 30s.
 func (s *Store) Migrate(ctx context.Context, fsys fs.FS) (version int64, applied []Migration, err error) {
-	provider, err := goose.NewProvider(goose.DialectMySQL, s.db, fsys)
+	locker, err := lock.NewMySQLTableLocker(
+		// Try every second instead of goose's 5s, so a waiting instance starts
+		// soon after the other is done. Give up after 5 minutes, as goose does.
+		lock.WithTableLockTimeout(time.Second, 300),
+		lock.WithTableLogger(slog.Default()),
+	)
+	if err != nil {
+		return 0, nil, err
+	}
+	provider, err := goose.NewProvider(goose.DialectMySQL, s.db, fsys, goose.WithLocker(locker))
 	if err != nil {
 		return 0, nil, err
 	}
