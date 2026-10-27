@@ -65,6 +65,22 @@ func TestInitPasteCreatedStartsTheSeriesAtZero(t *testing.T) {
 	}
 }
 
+func TestObserveCleanupCountsDeletedPastesAndFailedRuns(t *testing.T) {
+	ObserveCleanup(1500, false)
+	ObserveCleanup(0, false)
+	ObserveCleanup(200, true)
+
+	out := scrape(t)
+	for _, want := range []string{
+		`pastebin_expired_pastes_deleted_total 1700`,
+		`pastebin_cleanup_failures_total 1`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("/metrics is missing %s", want)
+		}
+	}
+}
+
 // nopDriver lets the test build a *sql.DB without a database behind it; the
 // stats collector only reads db.Stats().
 type nopDriver struct{}

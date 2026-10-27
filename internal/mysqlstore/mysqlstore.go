@@ -172,6 +172,18 @@ func (s *Store) Get(ctx context.Context, id string) (paste.Paste, error) {
 	return p, nil
 }
 
+// DeleteExpired deletes up to limit pastes that expired at or before now,
+// oldest first, and returns how many it deleted. It reads them through
+// idx_pastes_expires_at and locks only the rows it deletes.
+func (s *Store) DeleteExpired(ctx context.Context, now time.Time, limit int) (int64, error) {
+	res, err := s.db.ExecContext(ctx,
+		"DELETE FROM pastes WHERE expires_at <= ? ORDER BY expires_at LIMIT ?", now, limit)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 // translate turns the MySQL errors paste.Store names into its own.
 func translate(err error) error {
 	var myErr *mysql.MySQLError
