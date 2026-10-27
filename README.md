@@ -73,6 +73,7 @@ Writing a migration:
 - One statement per file. MySQL commits each DDL statement on its own, so if the second statement of a file fails, the first stays applied and goose records nothing.
 - A new column gets a default or allows `NULL`, so the previous app version keeps working while a deploy or a rollback is under way.
 - Add `ALGORITHM = INSTANT` where MySQL supports it: the column goes into the table's metadata without rewriting the rows, and if it can't, the migration fails instead of rebuilding the table.
+- An index can't be INSTANT. Add it with `ALGORITHM = INPLACE LOCK = NONE`: MySQL builds it while reads and writes go on. It still reads the whole table, and the instance applying it serves nothing until it is done.
 - Migrations run with the same 2s lock wait as requests. An `ALTER` that can't get its table lock in 2s fails and is retried when the app restarts, instead of making every read of that table queue behind it.
 
 ## Run
