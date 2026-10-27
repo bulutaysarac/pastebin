@@ -6,10 +6,12 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io/fs"
 	"strconv"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
+	"github.com/pressly/goose/v3"
 
 	"github.com/bulutaysarac/pastebin/internal/paste"
 )
@@ -86,6 +88,34 @@ func Open(ctx context.Context, dsn string, pool Pool) (*Store, error) {
 }
 
 func (s *Store) Close() error { return s.db.Close() }
+
+// Migration is one migration that Migrate applied.
+type Migration struct {
+	Version  int64
+	File     string
+	Duration time.Duration
+}
+
+// Migrate applies, in order, the goose migrations in fsys that the database
+// hasn't had yet, and returns them with the schema version it ends at. goose
+// records each applied version in the goose_db_version table.
+func (s *Store) Migrate(ctx context.Context, fsys fs.FS) (version int64, applied []Migration, err error) {
+	provider, err := goose.NewProvider(goose.DialectMySQL, s.db, fsys)
+	if err != nil {
+		return 0, nil, err
+	}
+	results, err := provider.Up(ctx)
+	for _, r := range results {
+		if r.Error == nil {
+			applied = append(applied, Migration{Version: r.Source.Version, File: r.Source.Path, Duration: r.Duration})
+		}
+	}
+	if err != nil {
+		return 0, applied, err
+	}
+	version, err = provider.GetDBVersion(ctx)
+	return version, applied, err
+}
 
 // Ping checks that MySQL answers, using a connection from the pool.
 func (s *Store) Ping(ctx context.Context) error { return s.db.PingContext(ctx) }

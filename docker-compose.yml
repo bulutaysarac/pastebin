@@ -35,10 +35,10 @@ services:
       MYSQL_PASSWORD: pastebin
     volumes:
       - mysql-data:/var/lib/mysql
-      - ./migrations:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      # -h 127.0.0.1 forces TCP. The temporary server that runs the init scripts
-      # does not listen on TCP, so this only passes once MySQL is really ready.
+      # -h 127.0.0.1 forces TCP. The temporary server that creates the database
+      # and user on first start does not listen on TCP, so this only passes once
+      # MySQL is really ready.
       test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
       interval: 3s
       timeout: 3s
