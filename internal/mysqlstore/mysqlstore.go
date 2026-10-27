@@ -108,10 +108,13 @@ func (s *Store) Migrate(ctx context.Context, fsys fs.FS) (version int64, applied
 		return 0, nil, err
 	}
 	results, err := provider.Up(ctx)
+	// When one fails, goose returns the ones applied before it only here.
+	var partial *goose.PartialError
+	if errors.As(err, &partial) {
+		results = partial.Applied
+	}
 	for _, r := range results {
-		if r.Error == nil {
-			applied = append(applied, Migration{Version: r.Source.Version, File: r.Source.Path, Duration: r.Duration})
-		}
+		applied = append(applied, Migration{Version: r.Source.Version, File: r.Source.Path, Duration: r.Duration})
 	}
 	if err != nil {
 		return 0, applied, err
