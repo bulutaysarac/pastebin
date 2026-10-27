@@ -3,6 +3,7 @@
 package handlers_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -28,11 +29,24 @@ type memStore struct {
 	mu      sync.Mutex
 	pastes  map[string]paste.Paste
 	pingErr error // what Ping returns, for the /health tests
+	hang    bool  // Get and Create wait until the request's context ends, like on a locked table
+	err     error // what Get and Create return instead of working
 }
 
 func (m *memStore) Ping(context.Context) error { return m.pingErr }
 
-func (m *memStore) Create(_ context.Context, p paste.Paste) error {
+func (m *memStore) fail(ctx context.Context) error {
+	if m.hang {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	return m.err
+}
+
+func (m *memStore) Create(ctx context.Context, p paste.Paste) error {
+	if err := m.fail(ctx); err != nil {
+		return err
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.pastes[p.ID]; ok {
@@ -42,7 +56,10 @@ func (m *memStore) Create(_ context.Context, p paste.Paste) error {
 	return nil
 }
 
-func (m *memStore) Get(_ context.Context, id string) (paste.Paste, error) {
+func (m *memStore) Get(ctx context.Context, id string) (paste.Paste, error) {
+	if err := m.fail(ctx); err != nil {
+		return paste.Paste{}, err
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	p, ok := m.pastes[id]
@@ -56,8 +73,14 @@ func (m *memStore) Get(_ context.Context, id string) (paste.Paste, error) {
 // create rate limit; 0 turns it off.
 func newTestApp(t *testing.T, createsPerMinute int) (*echo.Echo, *memStore) {
 	t.Helper()
+	return newLoggingTestApp(t, createsPerMinute, io.Discard)
+}
+
+// newLoggingTestApp is newTestApp with the handlers' log written to logs.
+func newLoggingTestApp(t *testing.T, createsPerMinute int, logs io.Writer) (*echo.Echo, *memStore) {
+	t.Helper()
 	store := &memStore{pastes: map[string]paste.Paste{}}
-	h := handlers.New(paste.NewService(store), store, "http://paste.test", slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h := handlers.New(paste.NewService(store), store, "http://paste.test", slog.New(slog.NewTextHandler(logs, nil)))
 
 	e := echo.New()
 	e.Renderer = handlers.NewRenderer()
@@ -322,6 +345,88 @@ func TestZeroCreatesPerMinuteTurnsTheLimitOff(t *testing.T) {
 		if rec := createFrom(e, "192.0.2.1:40000", nil); rec.Code != http.StatusSeeOther {
 			t.Fatalf("create %d: status %d, want 303", i+1, rec.Code)
 		}
+	}
+}
+
+// storeRequests is one read and one create, each sent with ctx.
+func storeRequests(ctx context.Context) map[string]*http.Request {
+	create := httptest.NewRequest(http.MethodPost, "/paste", strings.NewReader("content=hi&expires=never"))
+	create.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
+	return map[string]*http.Request{
+		"read":   httptest.NewRequest(http.MethodGet, "/AAAAAAAA", nil).WithContext(ctx),
+		"create": create.WithContext(ctx),
+	}
+}
+
+func TestStoreOutlastingTheDeadlineGets503(t *testing.T) {
+	var logs bytes.Buffer
+	e, store := newLoggingTestApp(t, 0, &logs)
+	store.hang = true
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	for name, req := range storeRequests(ctx) {
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != http.StatusServiceUnavailable || !strings.HasSuffix(rec.Body.String(), "in time, try again") {
+			t.Errorf("%s: status %d, body %q; want 503 ... in time, try again", name, rec.Code, rec.Body)
+		}
+	}
+	if !strings.Contains(logs.String(), "level=WARN") || strings.Contains(logs.String(), "level=ERROR") {
+		t.Errorf("want WARN and no ERROR in the log:\n%s", logs.String())
+	}
+}
+
+func TestDatabaseTimeoutGets503(t *testing.T) {
+	var logs bytes.Buffer
+	e, store := newLoggingTestApp(t, 0, &logs)
+	store.err = fmt.Errorf("%w: lock wait timeout exceeded", paste.ErrStoreTimeout)
+
+	for name, req := range storeRequests(context.Background()) {
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != http.StatusServiceUnavailable {
+			t.Errorf("%s: status %d, want 503", name, rec.Code)
+		}
+	}
+	if !strings.Contains(logs.String(), "level=WARN") || strings.Contains(logs.String(), "level=ERROR") {
+		t.Errorf("want WARN and no ERROR in the log:\n%s", logs.String())
+	}
+}
+
+func TestClientThatLeftIsNotAServerError(t *testing.T) {
+	var logs bytes.Buffer
+	e, store := newLoggingTestApp(t, 0, &logs)
+	store.hang = true
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	for name, req := range storeRequests(ctx) {
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != 499 {
+			t.Errorf("%s: status %d, want 499", name, rec.Code)
+		}
+	}
+	if !strings.Contains(logs.String(), "client went away") || strings.Contains(logs.String(), "level=ERROR") {
+		t.Errorf("want \"client went away\" and no ERROR in the log:\n%s", logs.String())
+	}
+}
+
+func TestOtherStoreErrorsStay500(t *testing.T) {
+	var logs bytes.Buffer
+	e, store := newLoggingTestApp(t, 0, &logs)
+	store.err = errors.New("disk full")
+
+	for name, req := range storeRequests(context.Background()) {
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		if rec.Code != http.StatusInternalServerError {
+			t.Errorf("%s: status %d, want 500", name, rec.Code)
+		}
+	}
+	if !strings.Contains(logs.String(), "level=ERROR") {
+		t.Errorf("want ERROR in the log:\n%s", logs.String())
 	}
 }
 

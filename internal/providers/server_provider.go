@@ -21,6 +21,14 @@ func StartServer(e *echo.Echo) {
 	e.HideBanner = true
 	e.HidePort = true
 	e.Server.ReadHeaderTimeout = 5 * time.Second
+	// The whole request, body included: the largest accepted body (about
+	// 1.5 MiB) has to arrive at 150 KB/s or faster.
+	e.Server.ReadTimeout = 10 * time.Second
+	// From the end of the headers to the last byte of the response: the
+	// handler's work plus sending a 512 KiB paste to a slow reader.
+	e.Server.WriteTimeout = 15 * time.Second
+	// Set on its own: at 0 it would fall back to ReadTimeout.
+	e.Server.IdleTimeout = 60 * time.Second
 
 	app := environments.GetApp()
 

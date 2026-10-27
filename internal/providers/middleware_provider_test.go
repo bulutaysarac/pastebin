@@ -8,10 +8,12 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/labstack/echo/v4"
 
 	"github.com/bulutaysarac/pastebin/internal/metrics"
+	"github.com/bulutaysarac/pastebin/internal/mysqlstore"
 )
 
 // newTestEcho builds a server with the real middlewares and three routes under
@@ -72,6 +74,34 @@ func TestEveryRequestFeedsTheLatencyHistogram(t *testing.T) {
 		if !strings.Contains(rec.Body.String(), want) {
 			t.Errorf("/metrics is missing %s\n%s", want, grepLines(rec.Body.String(), "pastebin_http_request_duration_seconds_count"))
 		}
+	}
+}
+
+func TestEveryRequestGetsADeadline(t *testing.T) {
+	e := newTestEcho(t, "/deadline")
+	var left time.Duration
+	e.GET("/deadline/check", func(c echo.Context) error {
+		deadline, ok := c.Request().Context().Deadline()
+		if !ok {
+			return c.NoContent(http.StatusInternalServerError)
+		}
+		left = time.Until(deadline)
+		return c.NoContent(http.StatusNoContent)
+	})
+
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/deadline/check", nil))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status %d: the request context has no deadline", rec.Code)
+	}
+	if left <= requestTimeout-time.Second || left > requestTimeout {
+		t.Fatalf("deadline in %v, want about %v", left, requestTimeout)
+	}
+}
+
+func TestMySQLGivesUpBeforeTheRequestDeadline(t *testing.T) {
+	if mysqlstore.StatementTimeout >= requestTimeout {
+		t.Fatalf("mysqlstore.StatementTimeout (%v) must be under requestTimeout (%v)", mysqlstore.StatementTimeout, requestTimeout)
 	}
 }
 

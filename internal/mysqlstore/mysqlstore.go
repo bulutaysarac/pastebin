@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
@@ -13,17 +14,35 @@ import (
 	"github.com/bulutaysarac/pastebin/internal/paste"
 )
 
-// MySQL error 1062: ER_DUP_ENTRY, a primary/unique key violation.
-const errDuplicateEntry = 1062
+// MySQL error numbers the store translates.
+const (
+	errDuplicateEntry  = 1062 // ER_DUP_ENTRY: a primary/unique key violation
+	errLockWaitTimeout = 1205 // ER_LOCK_WAIT_TIMEOUT: lock_wait_timeout or innodb_lock_wait_timeout
+	errQueryTimeout    = 3024 // ER_QUERY_TIMEOUT: max_execution_time
+)
+
+// StatementTimeout is how long MySQL runs one statement, or waits for a lock
+// for it, before giving up. It must stay under the request deadline:
+// cancelling a request only closes the app's end of the connection, and
+// MySQL would keep waiting on its end, holding one of its max_connections.
+const StatementTimeout = 2 * time.Second
 
 type Store struct {
 	db *sql.DB
 }
 
+// Pool sizes the connection pool. Every field must be positive: database/sql
+// reads a zero as "unlimited", "keep none" and "forever".
+type Pool struct {
+	MaxOpenConns    int
+	MaxIdleConns    int
+	ConnMaxLifetime time.Duration
+}
+
 // Open connects to MySQL and keeps pinging until the server answers or ctx ends.
 // On first start the database container takes a while to initialise, so the
 // first few pings are expected to fail.
-func Open(ctx context.Context, dsn string) (*Store, error) {
+func Open(ctx context.Context, dsn string, pool Pool) (*Store, error) {
 	cfg, err := mysql.ParseDSN(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("parse dsn: %w", err)
@@ -32,11 +51,23 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 	cfg.ParseTime = true
 	cfg.Loc = time.UTC
 
+	// Sent as SET on every new connection.
+	if cfg.Params == nil {
+		cfg.Params = map[string]string{}
+	}
+	secs := strconv.Itoa(int(StatementTimeout / time.Second))
+	cfg.Params["max_execution_time"] = strconv.FormatInt(StatementTimeout.Milliseconds(), 10) // SELECTs, in ms
+	cfg.Params["lock_wait_timeout"] = secs                                                    // table and metadata locks
+	cfg.Params["innodb_lock_wait_timeout"] = secs                                             // row locks
+
 	connector, err := mysql.NewConnector(cfg)
 	if err != nil {
 		return nil, err
 	}
 	db := sql.OpenDB(connector)
+	db.SetMaxOpenConns(pool.MaxOpenConns)
+	db.SetMaxIdleConns(pool.MaxIdleConns)
+	db.SetConnMaxLifetime(pool.ConnMaxLifetime)
 
 	for {
 		pingCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
@@ -66,12 +97,7 @@ func (s *Store) Create(ctx context.Context, p paste.Paste) error {
 	_, err := s.db.ExecContext(ctx,
 		"INSERT INTO pastes (id, content, language, expires_at) VALUES (?, ?, ?, ?)",
 		p.ID, p.Content, p.Language, p.ExpiresAt)
-
-	var myErr *mysql.MySQLError
-	if errors.As(err, &myErr) && myErr.Number == errDuplicateEntry {
-		return paste.ErrIDTaken
-	}
-	return err
+	return translate(err)
 }
 
 func (s *Store) Get(ctx context.Context, id string) (paste.Paste, error) {
@@ -86,11 +112,26 @@ func (s *Store) Get(ctx context.Context, id string) (paste.Paste, error) {
 		return paste.Paste{}, paste.ErrNotFound
 	}
 	if err != nil {
-		return paste.Paste{}, err
+		return paste.Paste{}, translate(err)
 	}
 	if exp.Valid {
 		t := exp.Time
 		p.ExpiresAt = &t
 	}
 	return p, nil
+}
+
+// translate turns the MySQL errors paste.Store names into its own.
+func translate(err error) error {
+	var myErr *mysql.MySQLError
+	if !errors.As(err, &myErr) {
+		return err
+	}
+	switch myErr.Number {
+	case errDuplicateEntry:
+		return paste.ErrIDTaken
+	case errLockWaitTimeout, errQueryTimeout:
+		return fmt.Errorf("%w: %w", paste.ErrStoreTimeout, err)
+	}
+	return err
 }

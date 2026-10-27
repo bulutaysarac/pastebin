@@ -3,6 +3,7 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -126,8 +127,7 @@ func (h *Handler) CreatePaste(c echo.Context) error {
 		return c.String(http.StatusRequestEntityTooLarge, err.Error())
 	}
 	if err != nil {
-		h.log.Error("create paste", "err", err)
-		return c.String(http.StatusInternalServerError, "could not save paste")
+		return h.storeFailed(c, err, "could not save paste", "create paste")
 	}
 	metrics.ObservePasteCreated(language.Value, expires, len(content))
 
@@ -146,8 +146,7 @@ func (h *Handler) ShowPaste(c echo.Context) error {
 		return c.Render(http.StatusNotFound, "notfound.html", nil)
 	}
 	if err != nil {
-		h.log.Error("get paste", "id", id, "err", err)
-		return c.String(http.StatusInternalServerError, "could not load paste")
+		return h.storeFailed(c, err, "could not load paste", "get paste", "id", id)
 	}
 
 	// private: only the reader's own browser may cache it, not shared proxies.
@@ -161,6 +160,32 @@ func (h *Handler) ShowPaste(c echo.Context) error {
 		"Language": language,
 		"ShareURL": h.baseURL + "/" + p.ID,
 	})
+}
+
+// statusClientClosedRequest is nginx's code for a client that left before the
+// answer; net/http has none. It keeps those requests out of the 5xx count.
+const statusClientClosedRequest = 499
+
+// storeFailed answers a request whose store call returned err. msg is the
+// text the client gets; op and attrs go to the log.
+func (h *Handler) storeFailed(c echo.Context, err error, msg, op string, attrs ...any) error {
+	ctx := c.Request().Context()
+	attrs = append(attrs, "err", err)
+	switch {
+	case errors.Is(err, context.Canceled) && errors.Is(ctx.Err(), context.Canceled):
+		// The client went away. Nothing is wrong on this side.
+		h.log.Info(op+": client went away", attrs...)
+		return c.NoContent(statusClientClosedRequest)
+	case errors.Is(err, paste.ErrStoreTimeout),
+		errors.Is(err, context.DeadlineExceeded) && errors.Is(ctx.Err(), context.DeadlineExceeded):
+		// MySQL gave up on the statement, or the wait for a free connection
+		// took the whole deadline.
+		h.log.Warn(op+": timed out", attrs...)
+		return c.String(http.StatusServiceUnavailable, msg+" in time, try again")
+	default:
+		h.log.Error(op, attrs...)
+		return c.String(http.StatusInternalServerError, msg)
+	}
 }
 
 // cacheLifetime is how long the browser may reuse a paste without asking the

@@ -42,6 +42,15 @@ flowchart LR
 
 Syntax highlighting runs in the browser (highlight.js, vendored under `handlers/static/vendor`). The server only stores the language name, so the read path stays a single `SELECT` with no highlighting work.
 
+### Timeouts and the DB pool
+
+Nothing waits forever, so a slow client or a stalled MySQL can't pile up connections:
+
+- **Connection:** the headers must arrive within 5s and the whole request within 10s. The response must be written within 15s. An idle keep-alive connection is closed after 60s.
+- **Request:** every request has 5s, including the wait for a DB connection. One that runs out gets `503` and a `WARN` log line. A client that leaves first gets `499` and an `INFO` line; that isn't a server error.
+- **MySQL:** each connection tells MySQL to give up on a statement, or on waiting for a lock, after 2s (`max_execution_time`, `lock_wait_timeout`, `innodb_lock_wait_timeout`). This has to come before the request deadline: a cancelled request only closes the app's end, and MySQL would keep waiting on its own.
+- **Pool:** at most 50 connections, under MySQL's `max_connections` of 151 with room for a second instance. Requests past that wait for a free one. Idle connections are kept for reuse, so a burst doesn't open and close one per query.
+
 ## Run
 
 ```sh
@@ -63,6 +72,9 @@ make remove   # delete containers, network, data volumes (MySQL, Prometheus) and
 | `BASE_URL` | `http://localhost:8080` |
 | `DB_HOST` / `DB_PORT` | `localhost` / `3306` |
 | `DB_USER` / `DB_PASSWORD` / `DB_NAME` | `pastebin` / `pastebin` / `pastebin` |
+| `DB_MAX_OPEN_CONNS` | `50`. At least 1. |
+| `DB_MAX_IDLE_CONNS` | the same as `DB_MAX_OPEN_CONNS`. At least 1. |
+| `DB_CONN_MAX_LIFETIME` | `5m`, a Go duration. |
 | `RATE_LIMIT_CREATES_PER_MINUTE` | `30` per client IP, after a burst of 10. `0` turns the limit off. |
 
 ## Observability
@@ -102,10 +114,10 @@ go test ./...
 | `environments` | settings read from env vars |
 | `routes/api.go` | URL → handler mapping |
 | `handlers` | request handling, HTML templates, static assets (CSS, JS, highlight.js), `Cache-Control`, create rate limit and body size limit |
-| `internal/providers` | startup steps: DB connection, metrics, middlewares (request log), renderer, server start/shutdown |
+| `internal/providers` | startup steps: DB connection, metrics, middlewares (request log, request deadline), renderer, server start/shutdown and its timeouts |
 | `internal/metrics` | what `/metrics` reports: request latency histogram, created pastes and their size, DB pool stats |
 | `internal/idgen` | random 8-char base62 IDs |
 | `internal/paste` | create with a unique ID (retries on collision), rejecting empty content and content over 512 KiB; read with expiry check |
-| `internal/mysqlstore` | MySQL implementation of the paste store |
+| `internal/mysqlstore` | MySQL implementation of the paste store: pool size, statement timeout |
 | `migrations` | schema, applied by the MySQL container on first start |
 | `monitoring` | Prometheus scrape config; Grafana data source and dashboards, loaded from files at start |
