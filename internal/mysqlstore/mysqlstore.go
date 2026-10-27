@@ -61,6 +61,9 @@ func Open(ctx context.Context, dsn string, pool Pool) (*Store, error) {
 	cfg.Params["max_execution_time"] = strconv.FormatInt(StatementTimeout.Milliseconds(), 10) // SELECTs, in ms
 	cfg.Params["lock_wait_timeout"] = secs                                                    // table and metadata locks
 	cfg.Params["innodb_lock_wait_timeout"] = secs                                             // row locks
+	// UTC, like every time the app writes, whatever the server's own zone:
+	// CURRENT_TIMESTAMP defaults and NOW() follow the session's zone.
+	cfg.Params["time_zone"] = "'+00:00'"
 
 	connector, err := mysql.NewConnector(cfg)
 	if err != nil {
@@ -125,8 +128,8 @@ func (s *Store) DB() *sql.DB { return s.db }
 
 func (s *Store) Create(ctx context.Context, p paste.Paste) error {
 	_, err := s.db.ExecContext(ctx,
-		"INSERT INTO pastes (id, content, language, expires_at) VALUES (?, ?, ?, ?)",
-		p.ID, p.Content, p.Language, p.ExpiresAt)
+		"INSERT INTO pastes (id, content, language, created_at, expires_at) VALUES (?, ?, ?, ?, ?)",
+		p.ID, p.Content, p.Language, p.CreatedAt, p.ExpiresAt)
 	return translate(err)
 }
 
@@ -136,8 +139,8 @@ func (s *Store) Get(ctx context.Context, id string) (paste.Paste, error) {
 		exp sql.NullTime
 	)
 	err := s.db.QueryRowContext(ctx,
-		"SELECT id, content, language, expires_at FROM pastes WHERE id = ?", id,
-	).Scan(&p.ID, &p.Content, &p.Language, &exp)
+		"SELECT id, content, language, created_at, expires_at FROM pastes WHERE id = ?", id,
+	).Scan(&p.ID, &p.Content, &p.Language, &p.CreatedAt, &exp)
 	if errors.Is(err, sql.ErrNoRows) {
 		return paste.Paste{}, paste.ErrNotFound
 	}

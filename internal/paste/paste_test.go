@@ -49,8 +49,8 @@ func TestCreateNeverExpires(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.ID != "AAAAAAAA" || p.ExpiresAt != nil {
-		t.Fatalf("got %+v, want id AAAAAAAA and no expiry", p)
+	if p.ID != "AAAAAAAA" || p.ExpiresAt != nil || !p.CreatedAt.Equal(t0) {
+		t.Fatalf("got %+v, want id AAAAAAAA, created at %v and no expiry", p, t0)
 	}
 }
 
@@ -60,9 +60,15 @@ func TestCreateWithTTL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !p.CreatedAt.Equal(t0) {
+		t.Fatalf("CreatedAt = %v, want %v (whole seconds)", p.CreatedAt, t0)
+	}
 	want := t0.Add(time.Hour)
 	if p.ExpiresAt == nil || !p.ExpiresAt.Equal(want) {
 		t.Fatalf("ExpiresAt = %v, want %v", p.ExpiresAt, want)
+	}
+	if got := p.ExpiresAt.Sub(p.CreatedAt); got != time.Hour {
+		t.Fatalf("ExpiresAt - CreatedAt = %v, want the 1h TTL", got)
 	}
 }
 
