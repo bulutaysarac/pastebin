@@ -42,6 +42,7 @@ type Paste struct {
 	ID        string
 	Content   string
 	Language  string     // highlight.js language name, e.g. "sql" or "plaintext"
+	CreatedAt time.Time  // UTC
 	ExpiresAt *time.Time // nil means the paste never expires
 }
 
@@ -81,10 +82,12 @@ func (s *Service) Create(ctx context.Context, content, language string, ttl time
 		return Paste{}, ErrTooLarge
 	}
 
-	p := Paste{Content: content, Language: language}
+	// Whole seconds: that is all a DATETIME column keeps. The expiry counts from
+	// the same instant, so ExpiresAt minus CreatedAt is the TTL that was chosen.
+	now := s.now().Truncate(time.Second)
+	p := Paste{Content: content, Language: language, CreatedAt: now}
 	if ttl > 0 {
-		// Truncate to whole seconds: that is all a DATETIME column keeps.
-		exp := s.now().Add(ttl).Truncate(time.Second)
+		exp := now.Add(ttl)
 		p.ExpiresAt = &exp
 	}
 

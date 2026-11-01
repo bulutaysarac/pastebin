@@ -1,7 +1,8 @@
--- The official MySQL image runs this file on first start only, while the data
--- volume is still empty. Later schema changes will not be picked up this way.
+-- +goose Up
+-- The table as v1 created it. A database from before migrations already has
+-- it, so IF NOT EXISTS lets that database take this version as applied.
 
-CREATE TABLE pastes (
+CREATE TABLE IF NOT EXISTS pastes (
     -- ascii_bin makes the id case-sensitive. Under MySQL's default collation
     -- (utf8mb4_0900_ai_ci), "aB3xK9pQ" and "AB3XK9PQ" would count as the same key.
     id         CHAR(8)    CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
