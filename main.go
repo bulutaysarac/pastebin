@@ -17,6 +17,8 @@ func main() {
 
 	db := providers.ConnectDatabase()
 	defer db.Close()
+	rdb := providers.ConnectRedis()
+	defer rdb.Close()
 	providers.RegisterMetrics(db)
 	stopCleanup := providers.StartCleanup(db)
 	defer stopCleanup() // runs before db.Close

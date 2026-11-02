@@ -16,9 +16,14 @@ services:
       # `RATE_LIMIT_CREATES_PER_MINUTE=0 make run` turns it off for load tests.
       RATE_LIMIT_CREATES_PER_MINUTE: ${RATE_LIMIT_CREATES_PER_MINUTE:-30}
       CLEANUP_INTERVAL: ${CLEANUP_INTERVAL:-1m}
+      REDIS_ADDR: redis:6379
     depends_on:
       mysql:
         condition: service_healthy
+      # Not required: the app works without Redis, only slower.
+      redis:
+        condition: service_started
+        required: false
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
       interval: 10s
@@ -47,6 +52,18 @@ services:
       interval: 3s
       timeout: 3s
       retries: 30
+
+  # A cache, so nothing is kept across restarts: no snapshots, no append-only
+  # file. Past 256 MB it evicts the least recently used keys.
+  redis:
+    image: redis:8.10.3-alpine
+    command: ["redis-server", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
 
   prometheus:
     image: prom/prometheus:v3.13.4
