@@ -129,6 +129,16 @@ func ObserveViewsDropped(reads int64) {
 	viewsDropped.Add(float64(reads))
 }
 
+var rateLimitFallbacks = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "pastebin_rate_limit_fallbacks_total",
+	Help: "Creates checked against this instance's own limit, because the shared one in Redis failed.",
+})
+
+// ObserveRateLimitFallback records one check that couldn't use the shared limit.
+func ObserveRateLimitFallback() {
+	rateLimitFallbacks.Inc()
+}
+
 // knownMethod folds anything but the standard methods into "OTHER": clients
 // choose the method string, so it must not be able to create new series.
 func knownMethod(m string) string {

@@ -10,6 +10,7 @@ import (
 	"github.com/bulutaysarac/pastebin/internal/cache"
 	"github.com/bulutaysarac/pastebin/internal/paste"
 	"github.com/bulutaysarac/pastebin/internal/providers"
+	"github.com/bulutaysarac/pastebin/internal/ratelimit"
 	"github.com/bulutaysarac/pastebin/routes"
 )
 
@@ -31,7 +32,8 @@ func main() {
 
 	app := environments.GetApp()
 	pastes := paste.NewService(cache.New(db, rdb, slog.Default()))
-	routes.RegisterAPIRoutes(e, handlers.New(pastes, db, counts, app.BaseURL, slog.Default()), app.CreatesPerMinute)
+	limitCreates := handlers.LimitCreates(app.CreatesPerMinute, ratelimit.New(rdb), slog.Default())
+	routes.RegisterAPIRoutes(e, handlers.New(pastes, db, counts, app.BaseURL, slog.Default()), limitCreates)
 
 	providers.StartServer(e)
 }

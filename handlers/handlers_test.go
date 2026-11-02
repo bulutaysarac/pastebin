@@ -118,7 +118,7 @@ func newLoggingTestApp(t *testing.T, createsPerMinute int, logs io.Writer) (*ech
 
 	e := echo.New()
 	e.Renderer = handlers.NewRenderer()
-	routes.RegisterAPIRoutes(e, h, createsPerMinute)
+	routes.RegisterAPIRoutes(e, h, handlers.LimitCreates(createsPerMinute, nil, slog.New(slog.NewTextHandler(logs, nil))))
 	return e, store
 }
 
@@ -364,6 +364,81 @@ func TestOversizedBodyIsRejectedBeforeItIsParsed(t *testing.T) {
 	}
 	if len(store.pastes) != 0 {
 		t.Fatal("an oversized body was stored")
+	}
+}
+
+// fakeSharedLimit answers from its fields, and remembers what it was asked.
+type fakeSharedLimit struct {
+	allow     bool
+	err       error
+	id        string
+	perMinute int
+	burst     int
+	deadline  time.Duration
+}
+
+func (f *fakeSharedLimit) Allow(ctx context.Context, id string, perMinute, burst int) (bool, error) {
+	f.id, f.perMinute, f.burst = id, perMinute, burst
+	if d, ok := ctx.Deadline(); ok {
+		f.deadline = time.Until(d)
+	}
+	return f.allow, f.err
+}
+
+func newSharedLimitApp(t *testing.T, shared handlers.SharedLimit) *echo.Echo {
+	t.Helper()
+	store := &memStore{pastes: map[string]paste.Paste{}, counted: &viewLog{}}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	e := echo.New()
+	e.Renderer = handlers.NewRenderer()
+	routes.RegisterAPIRoutes(e, handlers.New(paste.NewService(store), store, store.counted, "http://paste.test", log),
+		handlers.LimitCreates(30, shared, log))
+	return e
+}
+
+func TestTheSharedLimitDecides(t *testing.T) {
+	shared := &fakeSharedLimit{allow: true}
+	e := newSharedLimitApp(t, shared)
+
+	// More than this instance's own burst would let through.
+	for i := range 20 {
+		if rec := createFrom(e, "203.0.113.7:1234", nil); rec.Code != http.StatusSeeOther {
+			t.Fatalf("create %d: status %d, want 303", i+1, rec.Code)
+		}
+	}
+	if shared.id != "203.0.113.7" || shared.perMinute != 30 || shared.burst != 10 {
+		t.Fatalf("asked for id %q, %d/min, burst %d", shared.id, shared.perMinute, shared.burst)
+	}
+	if shared.deadline <= 0 || shared.deadline > 100*time.Millisecond {
+		t.Fatalf("deadline in %v, want within 100ms", shared.deadline)
+	}
+
+	shared.allow = false
+	rec := createFrom(e, "203.0.113.7:1234", nil)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("status %d, want 429", rec.Code)
+	}
+	if rec.Header().Get("Retry-After") == "" {
+		t.Fatal("a refused create has no Retry-After")
+	}
+}
+
+func TestWhenTheSharedLimitFailsTheOwnLimitApplies(t *testing.T) {
+	e := newSharedLimitApp(t, &fakeSharedLimit{err: errors.New("redis down")})
+
+	for i := range 10 {
+		if rec := createFrom(e, "203.0.113.7:1234", nil); rec.Code != http.StatusSeeOther {
+			t.Fatalf("create %d: status %d, want 303", i+1, rec.Code)
+		}
+	}
+	if rec := createFrom(e, "203.0.113.7:1234", nil); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("create past the burst: status %d, want 429: the limit must stay on", rec.Code)
+	}
+
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	if !strings.Contains(rec.Body.String(), "pastebin_rate_limit_fallbacks_total 1") {
+		t.Fatal("the fallbacks weren't counted")
 	}
 }
 
