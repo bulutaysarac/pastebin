@@ -2,6 +2,7 @@ package providers
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -20,6 +21,8 @@ const redisTimeout = 100 * time.Millisecond
 // the client connects when it is first used, and every user of it works
 // without Redis.
 func ConnectRedis() *redis.Client {
+	redis.SetLogger(redisLogger{})
+
 	addr := environments.GetRedis().Addr
 	rdb := redis.NewClient(&redis.Options{
 		Addr:                  addr,
@@ -28,7 +31,10 @@ func ConnectRedis() *redis.Client {
 		WriteTimeout:          redisTimeout,
 		PoolTimeout:           redisTimeout,
 		ContextTimeoutEnabled: true,
-		MaxRetries:            -1, // the callers fall back at once instead
+		// The callers fall back at once instead. By default it would dial five
+		// times and take a second to find Redis down.
+		MaxRetries:    -1,
+		DialerRetries: 1,
 		// Both are extra commands on every new connection, of no use here.
 		DisableIdentity:          true,
 		MaintNotificationsConfig: &maintnotifications.Config{Mode: maintnotifications.ModeDisabled},
@@ -42,4 +48,12 @@ func ConnectRedis() *redis.Client {
 	}
 	slog.Info("redis connected", "addr", addr)
 	return rdb
+}
+
+// redisLogger keeps the client's own lines out of the log at normal levels: it
+// would print one per failed dial, and the callers already log what failed.
+type redisLogger struct{}
+
+func (redisLogger) Printf(_ context.Context, format string, v ...any) {
+	slog.Debug("redis: " + fmt.Sprintf(format, v...))
 }

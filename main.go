@@ -7,6 +7,7 @@ import (
 
 	"github.com/bulutaysarac/pastebin/environments"
 	"github.com/bulutaysarac/pastebin/handlers"
+	"github.com/bulutaysarac/pastebin/internal/cache"
 	"github.com/bulutaysarac/pastebin/internal/paste"
 	"github.com/bulutaysarac/pastebin/internal/providers"
 	"github.com/bulutaysarac/pastebin/routes"
@@ -27,7 +28,7 @@ func main() {
 	providers.RegisterMiddlewares(e)
 
 	app := environments.GetApp()
-	pastes := paste.NewService(db)
+	pastes := paste.NewService(cache.New(db, rdb, slog.Default()))
 	routes.RegisterAPIRoutes(e, handlers.New(pastes, db, app.BaseURL, slog.Default()), app.CreatesPerMinute)
 
 	providers.StartServer(e)

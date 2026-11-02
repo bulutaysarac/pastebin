@@ -76,6 +76,30 @@ func ObserveCleanup(deleted int64, failed bool) {
 	}
 }
 
+// What a call to the paste cache in Redis came to.
+const (
+	CacheHit   = "hit"
+	CacheMiss  = "miss"
+	CacheError = "error" // Redis failed or is being skipped; the database answered
+)
+
+var cacheRequests = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "pastebin_cache_requests_total",
+	Help: "Calls to the paste cache in Redis, by result. Reads waiting on the same load count once.",
+}, []string{"result"})
+
+func init() {
+	// Created at 0, for the same reason as InitPasteCreated.
+	for _, result := range []string{CacheHit, CacheMiss, CacheError} {
+		cacheRequests.WithLabelValues(result)
+	}
+}
+
+// ObserveCacheRequest records one call to the paste cache.
+func ObserveCacheRequest(result string) {
+	cacheRequests.WithLabelValues(result).Inc()
+}
+
 // knownMethod folds anything but the standard methods into "OTHER": clients
 // choose the method string, so it must not be able to create new series.
 func knownMethod(m string) string {
