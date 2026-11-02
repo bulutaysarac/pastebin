@@ -14,7 +14,7 @@ flowchart LR
     Limits -.->|"429 · 413 · 400"| Author
     Limits -->|ok| App["App server"]
     App <-->|"new id"| IDGen["ID generator<br/>8 chars, unique"]
-    App -->|"INSERT id, content, language, expires_at"| DB[("MySQL")]
+    App -->|"INSERT id, content, language, created_at, expires_at"| DB[("MySQL")]
     App -.->|"303 redirect to /xxxxxxxx"| Author
 ```
 

@@ -403,7 +403,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "100 * sum(increase(pastebin_http_request_duration_seconds_count{status=~\"5..\",route!~\"/metrics|/health\"}[$__range])) / sum(increase(pastebin_http_request_duration_seconds_count{route!~\"/metrics|/health\"}[$__range]))",
+          "expr": "100 * (sum(increase(pastebin_http_request_duration_seconds_count{status=~\"5..\",route!~\"/metrics|/health\"}[$__range])) or vector(0)) / sum(increase(pastebin_http_request_duration_seconds_count{route!~\"/metrics|/health\"}[$__range]))",
           "range": false,
           "instant": true
         }
