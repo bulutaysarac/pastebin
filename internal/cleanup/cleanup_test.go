@@ -22,6 +22,21 @@ type fakeStore struct {
 	calls   []call
 	failOn  int         // the call (1, 2, ...) that returns errBoom; 0 = none
 	onCall  func(n int) // runs during call n, before it looks at ctx
+
+	lockedElsewhere bool  // LockCleanup finds another instance holding the lock
+	lockErr         error // what LockCleanup returns
+	locks, unlocks  int
+}
+
+func (f *fakeStore) LockCleanup(context.Context) (func(), bool, error) {
+	if f.lockErr != nil {
+		return nil, false, f.lockErr
+	}
+	if f.lockedElsewhere {
+		return nil, false, nil
+	}
+	f.locks++
+	return func() { f.unlocks++ }, true, nil
 }
 
 var errBoom = errors.New("boom")
@@ -113,5 +128,36 @@ func TestEveryRunsAtOnceAndReturnsWhenStopped(t *testing.T) {
 	}
 	if len(store.calls) != 1 || store.expired != 0 {
 		t.Fatalf("%d batches, %d left; want one run at start that deleted all 10", len(store.calls), store.expired)
+	}
+}
+
+func TestAnotherInstanceHoldingTheLockMeansNoRun(t *testing.T) {
+	store := &fakeStore{expired: 10, lockedElsewhere: true}
+	newTestJob(store).runAndReport(context.Background())
+	if len(store.calls) != 0 {
+		t.Fatalf("%d deletes while another instance holds the lock, want none", len(store.calls))
+	}
+	if store.expired != 10 {
+		t.Fatalf("%d pastes left, want all 10", store.expired)
+	}
+}
+
+func TestTheLockIsReleasedAfterARun(t *testing.T) {
+	for name, store := range map[string]*fakeStore{
+		"a run that ends":  {expired: 10},
+		"a run that fails": {expired: 10, failOn: 1},
+	} {
+		newTestJob(store).runAndReport(context.Background())
+		if store.locks != 1 || store.unlocks != 1 {
+			t.Errorf("%s: %d locks and %d unlocks, want 1 and 1", name, store.locks, store.unlocks)
+		}
+	}
+}
+
+func TestFailingToLockMeansNoRun(t *testing.T) {
+	store := &fakeStore{expired: 10, lockErr: errBoom}
+	newTestJob(store).runAndReport(context.Background())
+	if len(store.calls) != 0 {
+		t.Fatalf("%d deletes without the lock, want none", len(store.calls))
 	}
 }

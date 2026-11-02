@@ -15,6 +15,10 @@ type Store interface {
 	// DeleteExpired deletes up to limit pastes that expired at or before now,
 	// oldest first, and returns how many it deleted.
 	DeleteExpired(ctx context.Context, now time.Time, limit int) (int64, error)
+	// LockCleanup takes the lock that lets one instance run at a time, without
+	// waiting. ok is false if another instance holds it. When ok, the caller
+	// must call unlock.
+	LockCleanup(ctx context.Context) (unlock func(), ok bool, err error)
 }
 
 // BatchSize is the most pastes one DELETE removes. Each one holds its locks
@@ -55,6 +59,19 @@ func (j *Job) Every(stop context.Context, interval time.Duration) {
 }
 
 func (j *Job) runAndReport(stop context.Context) {
+	ctx, cancel := context.WithTimeout(context.Background(), batchTimeout)
+	unlock, ok, err := j.store.LockCleanup(ctx)
+	cancel()
+	if err != nil {
+		metrics.ObserveCleanup(0, true)
+		j.log.Error("cleanup failed", "deleted", 0, "err", err)
+		return
+	}
+	if !ok {
+		return // another instance is running it, which is fine
+	}
+	defer unlock()
+
 	start := time.Now()
 	deleted, err := j.Run(stop)
 	metrics.ObserveCleanup(deleted, err != nil)
