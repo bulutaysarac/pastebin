@@ -132,7 +132,7 @@ func TestHomePageShowsForm(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
-	for _, want := range []string{`action="/paste"`, `name="content"`, `name="expires"`, `value="1h"`, `name="language"`, `value="sql"`, `id="theme-toggle"`, fmt.Sprintf("Up to %d KiB", paste.MaxContentBytes>>10)} {
+	for _, want := range []string{`action="/paste"`, `name="content"`, `name="expires"`, `value="30m"`, `name="language"`, `value="sql"`, `id="theme-toggle"`, fmt.Sprintf("Up to %d KiB", paste.MaxContentBytes>>10)} {
 		if !strings.Contains(body, want) {
 			t.Errorf("home page is missing %s", want)
 		}
@@ -171,7 +171,7 @@ func TestCreateThenRead(t *testing.T) {
 
 func TestCacheLifetimeStopsAtExpiry(t *testing.T) {
 	srv, _ := newTestServer(t)
-	loc := postPaste(t, srv, "short-lived", "10m").Header.Get("Location")
+	loc := postPaste(t, srv, "short-lived", "30m").Header.Get("Location")
 
 	resp, _ := get(t, srv.URL+loc)
 	cc := resp.Header.Get("Cache-Control")
@@ -179,8 +179,8 @@ func TestCacheLifetimeStopsAtExpiry(t *testing.T) {
 	if _, err := fmt.Sscanf(cc, "private, max-age=%d", &secs); err != nil {
 		t.Fatalf("Cache-Control = %q: %v", cc, err)
 	}
-	if secs <= 0 || secs > 600 {
-		t.Fatalf("max-age = %d, want within (0, 600] for a 10 minute paste", secs)
+	if secs <= 0 || secs > 1800 {
+		t.Fatalf("max-age = %d, want within (0, 1800] for a 30 minute paste", secs)
 	}
 }
 
@@ -495,11 +495,11 @@ func TestMetricsAreServed(t *testing.T) {
 func TestOnlyStoredPastesAreCounted(t *testing.T) {
 	srv, _ := newTestServer(t)
 	// No other test uses this language and expiry pair, so the count is this test's alone.
-	postForm(t, srv, url.Values{"content": {"fn main() {}"}, "expires": {"1w"}, "language": {"rust"}})
+	postForm(t, srv, url.Values{"content": {"fn main() {}"}, "expires": {"7d"}, "language": {"rust"}})
 	postForm(t, srv, url.Values{"content": {"fn main() {}"}, "expires": {"forever"}, "language": {"rust"}})
 
 	_, body := get(t, srv.URL+"/metrics")
-	if want := `pastebin_pastes_created_total{expires="1w",language="rust"} 1`; !strings.Contains(body, want) {
+	if want := `pastebin_pastes_created_total{expires="7d",language="rust"} 1`; !strings.Contains(body, want) {
 		t.Errorf("/metrics is missing %s", want)
 	}
 	if strings.Contains(body, `expires="forever"`) {

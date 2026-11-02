@@ -25,10 +25,10 @@ type expiryOption struct {
 
 var expiryOptions = []expiryOption{
 	{"never", "Never", 0},
-	{"10m", "10 minutes", 10 * time.Minute},
-	{"1h", "1 hour", time.Hour},
+	{"30m", "30 minutes", 30 * time.Minute},
 	{"1d", "1 day", 24 * time.Hour},
-	{"1w", "1 week", 7 * 24 * time.Hour},
+	{"7d", "7 days", 7 * 24 * time.Hour},
+	{"30d", "30 days", 30 * 24 * time.Hour},
 }
 
 // languageOption is one choice in the home page's "syntax" dropdown. Value is
