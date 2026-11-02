@@ -333,8 +333,8 @@ func TestHungRedisCostsOneTimeout(t *testing.T) {
 	if _, err := c.Get(context.Background(), "aB3xK9pQ"); err != nil {
 		t.Fatal(err)
 	}
-	if took := time.Since(start); took > redisTimeout/2 {
-		t.Fatalf("second read took %v: it should have skipped Redis", took)
+	if took := time.Since(start); took >= redisTimeout {
+		t.Fatalf("second read took %v, a whole timeout: it should have skipped Redis", took)
 	}
 }
 

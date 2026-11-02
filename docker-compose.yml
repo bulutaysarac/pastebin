@@ -1,10 +1,22 @@
 name: pastebin
 
 services:
+  # The only way in. It spreads requests over the app's instances and moves on
+  # when one of them dies.
+  nginx:
+    image: nginx:1.30.6-alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - app
+    restart: unless-stopped
+
   app:
     build: .
-    ports:
-      - "8080:8080"
+    deploy:
+      replicas: 2
     environment:
       PORT: "8080"
       BASE_URL: "http://localhost:8080"

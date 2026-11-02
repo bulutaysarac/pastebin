@@ -1209,7 +1209,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "go_sql_open_connections{job=\"pastebin\"}",
+          "expr": "sum(go_sql_open_connections{job=\"pastebin\"})",
           "range": true,
           "legendFormat": "open"
         },
@@ -1219,7 +1219,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "go_sql_in_use_connections{job=\"pastebin\"}",
+          "expr": "sum(go_sql_in_use_connections{job=\"pastebin\"})",
           "range": true,
           "legendFormat": "in use"
         },
@@ -1229,7 +1229,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "go_sql_idle_connections{job=\"pastebin\"}",
+          "expr": "sum(go_sql_idle_connections{job=\"pastebin\"})",
           "range": true,
           "legendFormat": "idle"
         },
@@ -1239,7 +1239,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "go_sql_max_open_connections{job=\"pastebin\"}",
+          "expr": "sum(go_sql_max_open_connections{job=\"pastebin\"})",
           "range": true,
           "legendFormat": "max open"
         }
@@ -1299,7 +1299,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "rate(go_sql_max_idle_closed_total{job=\"pastebin\"}[$__rate_interval])",
+          "expr": "sum(rate(go_sql_max_idle_closed_total{job=\"pastebin\"}[$__rate_interval]))",
           "range": true,
           "legendFormat": "idle pool full"
         },
@@ -1309,7 +1309,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "rate(go_sql_max_idle_time_closed_total{job=\"pastebin\"}[$__rate_interval])",
+          "expr": "sum(rate(go_sql_max_idle_time_closed_total{job=\"pastebin\"}[$__rate_interval]))",
           "range": true,
           "legendFormat": "idle too long"
         },
@@ -1319,7 +1319,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "rate(go_sql_max_lifetime_closed_total{job=\"pastebin\"}[$__rate_interval])",
+          "expr": "sum(rate(go_sql_max_lifetime_closed_total{job=\"pastebin\"}[$__rate_interval]))",
           "range": true,
           "legendFormat": "too old"
         }
@@ -1379,7 +1379,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "rate(go_sql_wait_count_total{job=\"pastebin\"}[$__rate_interval])",
+          "expr": "sum(rate(go_sql_wait_count_total{job=\"pastebin\"}[$__rate_interval]))",
           "range": true,
           "legendFormat": "waits per second"
         },
@@ -1389,7 +1389,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "rate(go_sql_wait_duration_seconds_total{job=\"pastebin\"}[$__rate_interval])",
+          "expr": "sum(rate(go_sql_wait_duration_seconds_total{job=\"pastebin\"}[$__rate_interval]))",
           "range": true,
           "legendFormat": "seconds waited per second"
         }

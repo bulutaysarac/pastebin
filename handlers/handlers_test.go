@@ -502,6 +502,31 @@ func TestForwardedHeadersDontResetTheLimit(t *testing.T) {
 	}
 }
 
+func TestBehindNginxClientsAreToldApartByXRealIP(t *testing.T) {
+	const nginx = "172.18.0.5:40000" // a private address, as on the Compose network
+	e, _ := newTestApp(t, 1)
+	client := func(ip string) http.Header { return http.Header{"X-Real-Ip": {ip}} }
+
+	for i := range 10 {
+		if rec := createFrom(e, nginx, client("203.0.113.7")); rec.Code != http.StatusSeeOther {
+			t.Fatalf("create %d of the burst: status %d, want 303", i+1, rec.Code)
+		}
+	}
+	if rec := createFrom(e, nginx, client("203.0.113.7")); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("same client: status %d, want 429", rec.Code)
+	}
+	if rec := createFrom(e, nginx, client("203.0.113.8")); rec.Code != http.StatusSeeOther {
+		t.Fatalf("another client behind the same nginx: status %d, want 303", rec.Code)
+	}
+
+	// nginx passes X-Forwarded-For through as the client sent it.
+	forged := client("203.0.113.7")
+	forged["X-Forwarded-For"] = []string{"198.51.100.9"}
+	if rec := createFrom(e, nginx, forged); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("forged X-Forwarded-For: status %d, want 429", rec.Code)
+	}
+}
+
 func TestZeroCreatesPerMinuteTurnsTheLimitOff(t *testing.T) {
 	e, _ := newTestApp(t, 0)
 	for i := range 20 {

@@ -4,9 +4,14 @@ global:
   evaluation_interval: 5s
 
 scrape_configs:
+  # Each instance on its own, not through nginx: the service's DNS name returns
+  # them all, and the list follows containers that come and go.
   - job_name: pastebin
-    static_configs:
-      - targets: ["app:8080"]
+    dns_sd_configs:
+      - names: ["app"]
+        type: A
+        port: 8080
+        refresh_interval: 5s
 
   # The machine the containers run on. Under Docker Desktop that is its Linux
   # VM, not the Mac.
