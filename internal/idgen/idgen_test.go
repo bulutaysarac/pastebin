@@ -29,3 +29,16 @@ func TestNewDoesNotRepeatInPractice(t *testing.T) {
 		seen[id] = struct{}{}
 	}
 }
+
+func TestValid(t *testing.T) {
+	for range 1000 {
+		if id := New(); !Valid(id) {
+			t.Fatalf("Valid(%q) = false for an id New returned", id)
+		}
+	}
+	for _, id := range []string{"", "short", "aB3xK9pQ1", "aB3xK9p-", "aB3xK9p/", "aB3xK9pé", strings.Repeat("a", 8000)} {
+		if Valid(id) {
+			t.Errorf("Valid(%q) = true", id)
+		}
+	}
+}

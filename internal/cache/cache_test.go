@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -206,6 +207,21 @@ func TestUnknownIDIsCachedBriefly(t *testing.T) {
 	}
 	if n := f.store.getCount(); n != 2 {
 		t.Fatalf("store read %d times after the marker ended, want 2", n)
+	}
+}
+
+func TestAnIDThatCantExistReachesNeitherRedisNorTheStore(t *testing.T) {
+	f := newFixture(t)
+	for _, id := range []string{"short", "aB3xK9p-", strings.Repeat("a", 8000)} {
+		if _, err := f.get(t, id); !errors.Is(err, paste.ErrNotFound) {
+			t.Fatalf("%q: err = %v, want ErrNotFound", id, err)
+		}
+	}
+	if n := f.store.getCount(); n != 0 {
+		t.Fatalf("store read %d times, want 0", n)
+	}
+	if keys := f.mr.Keys(); len(keys) != 0 {
+		t.Fatalf("keys in Redis: %d, want none", len(keys))
 	}
 }
 

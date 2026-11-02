@@ -19,6 +19,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/sync/singleflight"
 
+	"github.com/bulutaysarac/pastebin/internal/idgen"
 	"github.com/bulutaysarac/pastebin/internal/metrics"
 	"github.com/bulutaysarac/pastebin/internal/paste"
 )
@@ -79,7 +80,14 @@ func New(next paste.Store, rdb *redis.Client, log *slog.Logger) *Store {
 // reads of one id share one load, so a paste that just left the cache costs
 // one query however many are reading it. Any Redis failure falls back to the
 // store. Store errors aren't cached.
+//
+// An id that can't exist is answered here. Otherwise any client could fill Redis
+// with markers under long keys of its choosing.
 func (s *Store) Get(ctx context.Context, id string) (paste.Paste, error) {
+	if !idgen.Valid(id) {
+		return paste.Paste{}, paste.ErrNotFound
+	}
+
 	ch := s.flight.DoChan(id, func() (any, error) {
 		// Not the caller's context: the others waiting on this load must not
 		// fail because the client that started it went away.

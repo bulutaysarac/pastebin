@@ -1,7 +1,10 @@
 // Package idgen produces the short IDs that become paste URLs.
 package idgen
 
-import "crypto/rand"
+import (
+	"crypto/rand"
+	"strings"
+)
 
 const (
 	alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
@@ -32,4 +35,17 @@ func New() string {
 		}
 	}
 	return string(out)
+}
+
+// Valid reports whether id has the shape of an ID New returns.
+func Valid(id string) bool {
+	if len(id) != Length {
+		return false
+	}
+	for _, c := range id {
+		if !strings.ContainsRune(alphabet, c) {
+			return false
+		}
+	}
+	return true
 }
