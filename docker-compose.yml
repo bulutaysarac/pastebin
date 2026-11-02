@@ -15,6 +15,7 @@ services:
       DB_NAME: pastebin
       # `RATE_LIMIT_CREATES_PER_MINUTE=0 make run` turns it off for load tests.
       RATE_LIMIT_CREATES_PER_MINUTE: ${RATE_LIMIT_CREATES_PER_MINUTE:-30}
+      CLEANUP_INTERVAL: ${CLEANUP_INTERVAL:-1m}
     depends_on:
       mysql:
         condition: service_healthy

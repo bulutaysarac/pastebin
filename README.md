@@ -42,6 +42,20 @@ flowchart LR
 
 Syntax highlighting runs in the browser (highlight.js, vendored under `handlers/static/vendor`). The server only stores the language name, so the read path stays a single `SELECT` with no highlighting work.
 
+### Expiry cleanup
+
+```mermaid
+flowchart LR
+    Tick["At start, then every<br/>CLEANUP_INTERVAL (1m)"] --> Batch["DELETE … WHERE expires_at <= now<br/>ORDER BY expires_at LIMIT 1000"]
+    Batch -->|"1000 deleted: there may be more"| Batch
+    Batch -->|"fewer: all done"| Report["log the count<br/>count it in /metrics"]
+    Report --> Tick
+```
+
+A paste past its expiry gets a `404` at once. Its row stays until the cleanup job, which runs inside the app, deletes it: at start and then every minute, it deletes the pastes that have expired, at most 1000 per `DELETE`, until a batch comes back short. It finds them through the index on `expires_at`, so each `DELETE` reads only the rows it removes and holds their locks only until it commits. Pastes that never expire are never read.
+
+A run that deletes something logs how many, e.g. `INFO cleanup deleted=1000 duration=…`, and `/metrics` counts the deleted pastes and the failed runs. On shutdown the batch under way finishes first. InnoDB reuses the freed space for new rows; the data file doesn't shrink.
+
 ### Timeouts and the DB pool
 
 Nothing waits forever, so a slow client or a stalled MySQL can't pile up connections:
@@ -73,6 +87,7 @@ Writing a migration:
 - One statement per file. MySQL commits each DDL statement on its own, so if the second statement of a file fails, the first stays applied and goose records nothing.
 - A new column gets a default or allows `NULL`, so the previous app version keeps working while a deploy or a rollback is under way.
 - Add `ALGORITHM = INSTANT` where MySQL supports it: the column goes into the table's metadata without rewriting the rows, and if it can't, the migration fails instead of rebuilding the table.
+- An index can't be INSTANT. Add it with `ALGORITHM = INPLACE LOCK = NONE`: MySQL builds it while reads and writes go on. It still reads the whole table, and the instance applying it serves nothing until it is done.
 - Migrations run with the same 2s lock wait as requests. An `ALTER` that can't get its table lock in 2s fails and is retried when the app restarts, instead of making every read of that table queue behind it.
 
 ## Run
@@ -100,6 +115,7 @@ make remove   # delete containers, network, data volumes (MySQL, Prometheus) and
 | `DB_MAX_IDLE_CONNS` | the same as `DB_MAX_OPEN_CONNS`. At least 1. |
 | `DB_CONN_MAX_LIFETIME` | `5m`, a Go duration. |
 | `RATE_LIMIT_CREATES_PER_MINUTE` | `30` per client IP, after a burst of 10. `0` turns the limit off. |
+| `CLEANUP_INTERVAL` | `1m`, a Go duration: how often expired pastes are deleted. |
 
 ## Observability
 
@@ -108,7 +124,7 @@ Every request is logged, e.g. `INFO request method=GET path=/aB3xK9pQ status=200
 | Endpoint | What |
 |---|---|
 | `GET /health` | `200 ok` while MySQL answers a ping within 1s, `503` otherwise. Compose uses it as the app's healthcheck. It is a readiness check: when MySQL is down, restarting the app doesn't help, so don't wire it to a restart. |
-| `GET /metrics` | Prometheus text format. `pastebin_http_request_duration_seconds` is a latency histogram by method, route and status. `pastebin_pastes_created_total` counts stored pastes by language and expiry option, and `pastebin_paste_size_bytes` is their size histogram. `go_sql_*` is the DB pool: open, in use and idle connections, wait count and wait time. Go runtime and process metrics are included too. |
+| `GET /metrics` | Prometheus text format. `pastebin_http_request_duration_seconds` is a latency histogram by method, route and status. `pastebin_pastes_created_total` counts stored pastes by language and expiry option, and `pastebin_paste_size_bytes` is their size histogram. `go_sql_*` is the DB pool: open, in use and idle connections, wait count and wait time. `pastebin_expired_pastes_deleted_total` and `pastebin_cleanup_failures_total` are the cleanup job's. Go runtime and process metrics are included too. |
 
 ### Monitoring
 
@@ -138,10 +154,11 @@ go test ./...
 | `environments` | settings read from env vars |
 | `routes/api.go` | URL → handler mapping |
 | `handlers` | request handling, HTML templates, static assets (CSS, JS, highlight.js), `Cache-Control`, create rate limit and body size limit |
-| `internal/providers` | startup steps: DB connection and migrations, metrics, middlewares (request log, request deadline), renderer, server start/shutdown and its timeouts |
-| `internal/metrics` | what `/metrics` reports: request latency histogram, created pastes and their size, DB pool stats |
+| `internal/providers` | startup steps: DB connection and migrations, metrics, expiry cleanup, middlewares (request log, request deadline), renderer, server start/shutdown and its timeouts |
+| `internal/metrics` | what `/metrics` reports: request latency histogram, created pastes and their size, DB pool stats, the cleanup job's counts |
 | `internal/idgen` | random 8-char base62 IDs |
 | `internal/paste` | create with a unique ID (retries on collision), rejecting empty content and content over 512 KiB; read with expiry check |
-| `internal/mysqlstore` | MySQL implementation of the paste store: pool size, statement timeout, migrations under a lock |
+| `internal/cleanup` | the background job that deletes expired pastes, a batch at a time |
+| `internal/mysqlstore` | MySQL implementation of the paste store: pool size, statement timeout, migrations under a lock, deleting expired pastes |
 | `migrations` | schema as numbered goose SQL files, embedded in the binary and applied at start |
 | `monitoring` | Prometheus scrape config; Grafana data source and dashboards, loaded from files at start |

@@ -105,8 +105,8 @@ func (s *Service) Create(ctx context.Context, content, language string, ttl time
 	return Paste{}, fmt.Errorf("no free id after %d attempts", maxIDAttempts)
 }
 
-// Get returns a live paste. Expired pastes still sit in the store but are
-// reported as ErrNotFound.
+// Get returns a live paste. An expired paste is reported as ErrNotFound; it
+// stays in the store until the cleanup job deletes it.
 func (s *Service) Get(ctx context.Context, id string) (Paste, error) {
 	p, err := s.store.Get(ctx, id)
 	if err != nil {

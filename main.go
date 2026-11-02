@@ -18,6 +18,8 @@ func main() {
 	db := providers.ConnectDatabase()
 	defer db.Close()
 	providers.RegisterMetrics(db)
+	stopCleanup := providers.StartCleanup(db)
+	defer stopCleanup() // runs before db.Close
 
 	providers.RegisterRenderer(e)
 	providers.RegisterMiddlewares(e)

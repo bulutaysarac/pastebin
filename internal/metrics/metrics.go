@@ -57,6 +57,25 @@ func ObservePasteCreated(language, expires string, sizeBytes int) {
 	pasteSize.Observe(float64(sizeBytes))
 }
 
+var expiredDeleted = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "pastebin_expired_pastes_deleted_total",
+	Help: "Expired pastes the cleanup job deleted.",
+})
+
+var cleanupFailures = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "pastebin_cleanup_failures_total",
+	Help: "Cleanup runs that stopped on an error.",
+})
+
+// ObserveCleanup records one cleanup run: the pastes it deleted, including
+// those before an error, and whether it failed.
+func ObserveCleanup(deleted int64, failed bool) {
+	expiredDeleted.Add(float64(deleted))
+	if failed {
+		cleanupFailures.Inc()
+	}
+}
+
 // knownMethod folds anything but the standard methods into "OTHER": clients
 // choose the method string, so it must not be able to create new series.
 func knownMethod(m string) string {
