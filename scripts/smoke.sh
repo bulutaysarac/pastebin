@@ -27,6 +27,13 @@ grep -qi '^cache-control: private, max-age=86400' "$headers" || fail "unexpected
 grep -q 'hello from smoke.sh 🚀 &lt;b&gt;not bold&lt;/b&gt;' <<<"$body" || fail "content missing or not escaped"
 echo "ok   read /$id (Cache-Control: private, max-age=86400)"
 
+# 3b. Its read count is served. The count itself arrives with the next write.
+stats=$(curl -s -D "$headers" "$BASE/$id/stats")
+grep -q '200' <(head -1 "$headers") || fail "GET /$id/stats: $(head -1 "$headers")"
+grep -qi '^cache-control: no-store' "$headers" || fail "stats are cacheable: $(grep -i cache-control "$headers")"
+grep -q "\"id\":\"$id\",\"views\":" <<<"$stats" || fail "unexpected stats: $stats"
+echo "ok   stats /$id/stats"
+
 # 4. IDs are case-sensitive: the same letters in another case must not match
 other=$(tr 'a-zA-Z' 'A-Za-z' <<<"$id")
 if [ "$other" != "$id" ]; then
