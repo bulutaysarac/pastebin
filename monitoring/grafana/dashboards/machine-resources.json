@@ -957,7 +957,7 @@
           },
           "expr": "rate(process_cpu_seconds_total{job=\"pastebin\"}[$__rate_interval])",
           "range": true,
-          "legendFormat": "app"
+          "legendFormat": "app {{instance}}"
         },
         {
           "refId": "B",
@@ -1037,7 +1037,7 @@
           },
           "expr": "process_resident_memory_bytes{job=\"pastebin\"}",
           "range": true,
-          "legendFormat": "resident (RSS)"
+          "legendFormat": "resident (RSS) {{instance}}"
         },
         {
           "refId": "B",
@@ -1047,7 +1047,7 @@
           },
           "expr": "go_memstats_heap_inuse_bytes{job=\"pastebin\"}",
           "range": true,
-          "legendFormat": "Go heap in use"
+          "legendFormat": "Go heap in use {{instance}}"
         }
       ],
       "id": 14,
@@ -1107,7 +1107,7 @@
           },
           "expr": "go_goroutines{job=\"pastebin\"}",
           "range": true,
-          "legendFormat": "goroutines"
+          "legendFormat": "goroutines {{instance}}"
         },
         {
           "refId": "B",
@@ -1117,7 +1117,7 @@
           },
           "expr": "go_threads{job=\"pastebin\"}",
           "range": true,
-          "legendFormat": "OS threads"
+          "legendFormat": "OS threads {{instance}}"
         }
       ],
       "id": 15,
@@ -1126,6 +1126,66 @@
         "w": 8,
         "x": 16,
         "y": 22
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Instances up",
+      "description": "App instances Prometheus can scrape. nginx sends requests to the ones it can reach.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(up{job=\"pastebin\"})",
+          "range": true,
+          "legendFormat": "instances"
+        }
+      ],
+      "id": 16,
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 30
       }
     }
   ],

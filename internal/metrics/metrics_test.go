@@ -5,6 +5,7 @@ import (
 	"database/sql/driver"
 	"io"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -86,6 +87,54 @@ func TestObserveCleanupCountsDeletedPastesAndFailedRuns(t *testing.T) {
 type nopDriver struct{}
 
 func (nopDriver) Open(string) (driver.Conn, error) { return nil, driver.ErrSkip }
+
+func TestCacheResultsStartAtZeroAndCount(t *testing.T) {
+	body := scrape(t)
+	for _, result := range []string{CacheHit, CacheMiss, CacheError} {
+		if !strings.Contains(body, `pastebin_cache_requests_total{result="`+result+`"} `) {
+			t.Errorf("/metrics has no series for result %q", result)
+		}
+	}
+
+	before := cacheRequestsFor(t, CacheHit)
+	ObserveCacheRequest(CacheHit)
+	if after := cacheRequestsFor(t, CacheHit); after != before+1 {
+		t.Fatalf("hit counter went from %v to %v", before, after)
+	}
+}
+
+func cacheRequestsFor(t *testing.T, result string) float64 {
+	t.Helper()
+	prefix := `pastebin_cache_requests_total{result="` + result + `"} `
+	for _, line := range strings.Split(scrape(t), "\n") {
+		if value, ok := strings.CutPrefix(line, prefix); ok {
+			n, err := strconv.ParseFloat(value, 64)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return n
+		}
+	}
+	t.Fatalf("/metrics has no %s", prefix)
+	return 0
+}
+
+func TestObserveViewsCounts(t *testing.T) {
+	ObserveViewsFlush(5, false)
+	ObserveViewsFlush(2, true)
+	ObserveViewsDropped(3)
+
+	body := scrape(t)
+	for _, want := range []string{
+		"pastebin_views_flushed_total 7",
+		"pastebin_views_flush_failures_total 1",
+		"pastebin_views_dropped_total 3",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("/metrics is missing %q", want)
+		}
+	}
+}
 
 func TestRegisterDBStatsExposesPoolGauges(t *testing.T) {
 	sql.Register("metrics-test-nop", nopDriver{})

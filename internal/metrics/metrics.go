@@ -76,6 +76,69 @@ func ObserveCleanup(deleted int64, failed bool) {
 	}
 }
 
+// What a call to the paste cache in Redis came to.
+const (
+	CacheHit   = "hit"
+	CacheMiss  = "miss"
+	CacheError = "error" // Redis failed or is being skipped; the database answered
+)
+
+var cacheRequests = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "pastebin_cache_requests_total",
+	Help: "Calls to the paste cache in Redis, by result. Reads waiting on the same load count once.",
+}, []string{"result"})
+
+func init() {
+	// Created at 0, for the same reason as InitPasteCreated.
+	for _, result := range []string{CacheHit, CacheMiss, CacheError} {
+		cacheRequests.WithLabelValues(result)
+	}
+}
+
+// ObserveCacheRequest records one call to the paste cache.
+func ObserveCacheRequest(result string) {
+	cacheRequests.WithLabelValues(result).Inc()
+}
+
+var viewsFlushed = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "pastebin_views_flushed_total",
+	Help: "Paste reads written to the database.",
+})
+
+var viewsFlushFailures = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "pastebin_views_flush_failures_total",
+	Help: "Writes of read counts that stopped on an error. The counts are kept for the next one.",
+})
+
+var viewsDropped = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "pastebin_views_dropped_total",
+	Help: "Paste reads not counted, because too many pastes were waiting to be written.",
+})
+
+// ObserveViewsFlush records one write of read counts: the reads it wrote,
+// including those before an error, and whether it failed.
+func ObserveViewsFlush(written int64, failed bool) {
+	viewsFlushed.Add(float64(written))
+	if failed {
+		viewsFlushFailures.Inc()
+	}
+}
+
+// ObserveViewsDropped records reads that could not be counted.
+func ObserveViewsDropped(reads int64) {
+	viewsDropped.Add(float64(reads))
+}
+
+var rateLimitFallbacks = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "pastebin_rate_limit_fallbacks_total",
+	Help: "Creates checked against this instance's own limit, because the shared one in Redis failed.",
+})
+
+// ObserveRateLimitFallback records one check that couldn't use the shared limit.
+func ObserveRateLimitFallback() {
+	rateLimitFallbacks.Inc()
+}
+
 // knownMethod folds anything but the standard methods into "OTHER": clients
 // choose the method string, so it must not be able to create new series.
 func knownMethod(m string) string {

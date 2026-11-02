@@ -27,6 +27,13 @@ grep -qi '^cache-control: private, max-age=86400' "$headers" || fail "unexpected
 grep -q 'hello from smoke.sh 🚀 &lt;b&gt;not bold&lt;/b&gt;' <<<"$body" || fail "content missing or not escaped"
 echo "ok   read /$id (Cache-Control: private, max-age=86400)"
 
+# 3b. Its read count is served. The count itself arrives with the next write.
+stats=$(curl -s -D "$headers" "$BASE/$id/stats")
+grep -q '200' <(head -1 "$headers") || fail "GET /$id/stats: $(head -1 "$headers")"
+grep -qi '^cache-control: no-store' "$headers" || fail "stats are cacheable: $(grep -i cache-control "$headers")"
+grep -q "\"id\":\"$id\",\"views\":" <<<"$stats" || fail "unexpected stats: $stats"
+echo "ok   stats /$id/stats"
+
 # 4. IDs are case-sensitive: the same letters in another case must not match
 other=$(tr 'a-zA-Z' 'A-Za-z' <<<"$id")
 if [ "$other" != "$id" ]; then
@@ -35,11 +42,11 @@ if [ "$other" != "$id" ]; then
   echo "ok   /$other (case-swapped) is 404"
 fi
 
-# 5. A 10 minute paste is cached at most 600s
-loc=$(curl -s -o /dev/null -w '%{redirect_url}' --data-urlencode 'content=short' --data-urlencode 'expires=10m' "$BASE/paste")
+# 5. A 30 minute paste is cached at most 1800s
+loc=$(curl -s -o /dev/null -w '%{redirect_url}' --data-urlencode 'content=short' --data-urlencode 'expires=30m' "$BASE/paste")
 maxage=$(curl -s -D - -o /dev/null "$BASE/${loc##*/}" | tr -d '\r' | sed -n 's/^[Cc]ache-[Cc]ontrol: private, max-age=//p')
-[ "$maxage" -gt 0 ] && [ "$maxage" -le 600 ] || fail "10m paste max-age=$maxage, want 1..600"
-echo "ok   10m paste max-age=$maxage"
+[ "$maxage" -gt 0 ] && [ "$maxage" -le 1800 ] || fail "30m paste max-age=$maxage, want 1..1800"
+echo "ok   30m paste max-age=$maxage"
 
 # 6. Unknown id and bad expiry
 code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE/NOPE1234")

@@ -25,10 +25,10 @@ type expiryOption struct {
 
 var expiryOptions = []expiryOption{
 	{"never", "Never", 0},
-	{"10m", "10 minutes", 10 * time.Minute},
-	{"1h", "1 hour", time.Hour},
+	{"30m", "30 minutes", 30 * time.Minute},
 	{"1d", "1 day", 24 * time.Hour},
-	{"1w", "1 week", 7 * 24 * time.Hour},
+	{"7d", "7 days", 7 * 24 * time.Hour},
+	{"30d", "30 days", 30 * 24 * time.Hour},
 }
 
 // languageOption is one choice in the home page's "syntax" dropdown. Value is
@@ -66,20 +66,26 @@ const maxBrowserCache = 24 * time.Hour
 // fits, with room left for the other fields.
 const maxFormBytes = 3*paste.MaxContentBytes + 4<<10
 
+// ViewRecorder counts a read of a paste. It must not block.
+type ViewRecorder interface {
+	Record(id string)
+}
+
 type Handler struct {
 	pastes  *paste.Service
 	db      Pinger
+	views   ViewRecorder
 	baseURL string
 	log     *slog.Logger
 }
 
-func New(pastes *paste.Service, db Pinger, baseURL string, log *slog.Logger) *Handler {
+func New(pastes *paste.Service, db Pinger, views ViewRecorder, baseURL string, log *slog.Logger) *Handler {
 	for _, l := range languageOptions {
 		for _, e := range expiryOptions {
 			metrics.InitPasteCreated(l.Value, e.Value)
 		}
 	}
-	return &Handler{pastes: pastes, db: db, baseURL: baseURL, log: log}
+	return &Handler{pastes: pastes, db: db, views: views, baseURL: baseURL, log: log}
 }
 
 // Home renders the form for a new paste.
@@ -149,6 +155,8 @@ func (h *Handler) ShowPaste(c echo.Context) error {
 		return h.storeFailed(c, err, "could not load paste", "get paste", "id", id)
 	}
 
+	h.views.Record(p.ID)
+
 	// private: only the reader's own browser may cache it, not shared proxies.
 	maxAge := cacheLifetime(p, h.pastes.Now())
 	c.Response().Header().Set(echo.HeaderCacheControl, "private, max-age="+strconv.Itoa(int(maxAge.Seconds())))
@@ -160,6 +168,23 @@ func (h *Handler) ShowPaste(c echo.Context) error {
 		"Language": language,
 		"ShareURL": h.baseURL + "/" + p.ID,
 	})
+}
+
+// PasteStats answers with how many times a paste was read, as JSON. It reads the
+// database and isn't cached, so the count is at most one write of the counts
+// old. The paste page doesn't show it: that page can stay cached for a day.
+func (h *Handler) PasteStats(c echo.Context) error {
+	id := c.Param("id")
+	c.Response().Header().Set(echo.HeaderCacheControl, "no-store")
+
+	count, err := h.pastes.Views(c.Request().Context(), id)
+	if errors.Is(err, paste.ErrNotFound) {
+		return c.JSON(http.StatusNotFound, map[string]string{"error": err.Error()})
+	}
+	if err != nil {
+		return h.storeFailed(c, err, "could not load stats", "get views", "id", id)
+	}
+	return c.JSON(http.StatusOK, map[string]any{"id": id, "views": count})
 }
 
 // statusClientClosedRequest is nginx's code for a client that left before the

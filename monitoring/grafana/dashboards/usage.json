@@ -403,7 +403,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "100 * sum(increase(pastebin_http_request_duration_seconds_count{status=~\"5..\",route!~\"/metrics|/health\"}[$__range])) / sum(increase(pastebin_http_request_duration_seconds_count{route!~\"/metrics|/health\"}[$__range]))",
+          "expr": "100 * (sum(increase(pastebin_http_request_duration_seconds_count{status=~\"5..\",route!~\"/metrics|/health\"}[$__range])) or vector(0)) / sum(increase(pastebin_http_request_duration_seconds_count{route!~\"/metrics|/health\"}[$__range]))",
           "range": false,
           "instant": true
         }
@@ -1209,7 +1209,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "go_sql_open_connections{job=\"pastebin\"}",
+          "expr": "sum(go_sql_open_connections{job=\"pastebin\"})",
           "range": true,
           "legendFormat": "open"
         },
@@ -1219,7 +1219,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "go_sql_in_use_connections{job=\"pastebin\"}",
+          "expr": "sum(go_sql_in_use_connections{job=\"pastebin\"})",
           "range": true,
           "legendFormat": "in use"
         },
@@ -1229,7 +1229,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "go_sql_idle_connections{job=\"pastebin\"}",
+          "expr": "sum(go_sql_idle_connections{job=\"pastebin\"})",
           "range": true,
           "legendFormat": "idle"
         },
@@ -1239,7 +1239,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "go_sql_max_open_connections{job=\"pastebin\"}",
+          "expr": "sum(go_sql_max_open_connections{job=\"pastebin\"})",
           "range": true,
           "legendFormat": "max open"
         }
@@ -1299,7 +1299,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "rate(go_sql_max_idle_closed_total{job=\"pastebin\"}[$__rate_interval])",
+          "expr": "sum(rate(go_sql_max_idle_closed_total{job=\"pastebin\"}[$__rate_interval]))",
           "range": true,
           "legendFormat": "idle pool full"
         },
@@ -1309,7 +1309,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "rate(go_sql_max_idle_time_closed_total{job=\"pastebin\"}[$__rate_interval])",
+          "expr": "sum(rate(go_sql_max_idle_time_closed_total{job=\"pastebin\"}[$__rate_interval]))",
           "range": true,
           "legendFormat": "idle too long"
         },
@@ -1319,7 +1319,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "rate(go_sql_max_lifetime_closed_total{job=\"pastebin\"}[$__rate_interval])",
+          "expr": "sum(rate(go_sql_max_lifetime_closed_total{job=\"pastebin\"}[$__rate_interval]))",
           "range": true,
           "legendFormat": "too old"
         }
@@ -1379,7 +1379,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "rate(go_sql_wait_count_total{job=\"pastebin\"}[$__rate_interval])",
+          "expr": "sum(rate(go_sql_wait_count_total{job=\"pastebin\"}[$__rate_interval]))",
           "range": true,
           "legendFormat": "waits per second"
         },
@@ -1389,7 +1389,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "rate(go_sql_wait_duration_seconds_total{job=\"pastebin\"}[$__rate_interval])",
+          "expr": "sum(rate(go_sql_wait_duration_seconds_total{job=\"pastebin\"}[$__rate_interval]))",
           "range": true,
           "legendFormat": "seconds waited per second"
         }
@@ -1400,6 +1400,140 @@
         "w": 8,
         "x": 16,
         "y": 37
+      }
+    },
+    {
+      "type": "row",
+      "id": 21,
+      "title": "Redis cache under this traffic",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 45
+      },
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "Cache hit ratio",
+      "description": "Share of lookups Redis answered, over the selected time range. Reads waiting on the same lookup count once, so this is lower than the share of reads that skipped MySQL.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "auto",
+        "orientation": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "100 * sum(increase(pastebin_cache_requests_total{result=\"hit\"}[$__range])) / sum(increase(pastebin_cache_requests_total[$__range]))",
+          "range": false,
+          "instant": true
+        }
+      ],
+      "id": 22,
+      "gridPos": {
+        "h": 8,
+        "w": 4,
+        "x": 0,
+        "y": 46
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Cache lookups per second",
+      "description": "hit and miss are what Redis answered. error is a Redis call that failed, or a lookup skipped in the second after a failure; the database answered those reads.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (result) (rate(pastebin_cache_requests_total[$__rate_interval]))",
+          "range": true,
+          "legendFormat": "{{result}}"
+        }
+      ],
+      "id": 23,
+      "gridPos": {
+        "h": 8,
+        "w": 20,
+        "x": 4,
+        "y": 46
       }
     }
   ],

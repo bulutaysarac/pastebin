@@ -31,6 +31,14 @@ func (m *memStore) Get(_ context.Context, id string) (Paste, error) {
 	return p, nil
 }
 
+func (m *memStore) Views(_ context.Context, id string) (int64, *time.Time, error) {
+	p, ok := m.pastes[id]
+	if !ok {
+		return 0, nil, ErrNotFound
+	}
+	return 7, p.ExpiresAt, nil
+}
+
 func newTestService(store Store, now time.Time, ids ...string) *Service {
 	s := NewService(store)
 	s.now = func() time.Time { return now }
@@ -138,5 +146,37 @@ func TestGetHidesExpiredPastes(t *testing.T) {
 	s = newTestService(store, t0.Add(-time.Second))
 	if _, err := s.Get(context.Background(), "EXPIRED0"); err != nil {
 		t.Fatalf("one second before expiry: err = %v, want nil", err)
+	}
+}
+
+func TestViewsOfALivePaste(t *testing.T) {
+	now := time.Date(2026, 11, 2, 12, 0, 0, 0, time.UTC)
+	store := newMemStore()
+	future := now.Add(time.Minute)
+	store.pastes["live"] = Paste{ID: "live", ExpiresAt: &future}
+	store.pastes["forever"] = Paste{ID: "forever"}
+	svc := newTestService(store, now)
+
+	for _, id := range []string{"live", "forever"} {
+		got, err := svc.Views(context.Background(), id)
+		if err != nil {
+			t.Fatalf("%s: %v", id, err)
+		}
+		if got != 7 {
+			t.Fatalf("%s: views = %d, want 7", id, got)
+		}
+	}
+}
+
+func TestViewsOfAnExpiredOrUnknownPasteIsNotFound(t *testing.T) {
+	now := time.Date(2026, 11, 2, 12, 0, 0, 0, time.UTC)
+	store := newMemStore()
+	store.pastes["expired"] = Paste{ID: "expired", ExpiresAt: &now} // at the instant it expires
+	svc := newTestService(store, now)
+
+	for _, id := range []string{"expired", "unknown"} {
+		if _, err := svc.Views(context.Background(), id); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("%s: err = %v, want ErrNotFound", id, err)
+		}
 	}
 }

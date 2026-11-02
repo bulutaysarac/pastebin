@@ -4,11 +4,13 @@ package mysqlstore
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
@@ -16,6 +18,7 @@ import (
 	"github.com/pressly/goose/v3/lock"
 
 	"github.com/bulutaysarac/pastebin/internal/paste"
+	"github.com/bulutaysarac/pastebin/internal/views"
 )
 
 // MySQL error numbers the store translates.
@@ -182,6 +185,97 @@ func (s *Store) DeleteExpired(ctx context.Context, now time.Time, limit int) (in
 		return 0, err
 	}
 	return res.RowsAffected()
+}
+
+// cleanupLock names the MySQL lock that lets one instance clean up at a time.
+const cleanupLock = "pastebin_cleanup"
+
+// unlockTimeout bounds releasing a lock, so a stalled connection can't hold up
+// the next run or shutdown.
+const unlockTimeout = 2 * time.Second
+
+// LockCleanup takes the cleanup lock without waiting. A MySQL lock belongs to
+// its connection, so it keeps one connection out of the pool until unlock, and
+// MySQL frees the lock if the instance dies.
+func (s *Store) LockCleanup(ctx context.Context) (unlock func(), ok bool, err error) {
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+
+	var got sql.NullInt64
+	if err := conn.QueryRowContext(ctx, "SELECT GET_LOCK(?, 0)", cleanupLock).Scan(&got); err != nil {
+		discard(conn)
+		return nil, false, err
+	}
+	if got.Int64 != 1 {
+		conn.Close()
+		return nil, false, nil
+	}
+
+	return func() {
+		ctx, cancel := context.WithTimeout(context.Background(), unlockTimeout)
+		defer cancel()
+		var released sql.NullInt64
+		err := conn.QueryRowContext(ctx, "SELECT RELEASE_LOCK(?)", cleanupLock).Scan(&released)
+		if err != nil || released.Int64 != 1 {
+			slog.Warn("cleanup lock not released, dropping its connection", "released", released.Int64, "err", err)
+			discard(conn)
+			return
+		}
+		conn.Close()
+	}, true, nil
+}
+
+// discard closes conn for good instead of returning it to the pool, where
+// whoever used it next would hold its lock without knowing.
+func discard(conn *sql.Conn) {
+	_ = conn.Raw(func(any) error { return driver.ErrBadConn })
+	conn.Close()
+}
+
+// AddViews adds the counts to their pastes in one statement. Ids that no longer
+// exist are ignored. Callers pass ids in order, so two instances writing the
+// same pastes lock them in the same order.
+func (s *Store) AddViews(ctx context.Context, batch []views.Count) error {
+	if len(batch) == 0 {
+		return nil
+	}
+	var q strings.Builder
+	args := make([]any, 0, 3*len(batch))
+	q.WriteString("UPDATE pastes SET views = views + CASE id")
+	for _, c := range batch {
+		q.WriteString(" WHEN ? THEN ?")
+		args = append(args, c.ID, c.N)
+	}
+	q.WriteString(" ELSE 0 END WHERE id IN (?")
+	q.WriteString(strings.Repeat(",?", len(batch)-1))
+	q.WriteString(")")
+	for _, c := range batch {
+		args = append(args, c.ID)
+	}
+	_, err := s.db.ExecContext(ctx, q.String(), args...)
+	return translate(err)
+}
+
+// Views returns the paste's read count and when it expires, or ErrNotFound. It
+// doesn't read the content, however large.
+func (s *Store) Views(ctx context.Context, id string) (int64, *time.Time, error) {
+	var (
+		count int64
+		exp   sql.NullTime
+	)
+	err := s.db.QueryRowContext(ctx, "SELECT views, expires_at FROM pastes WHERE id = ?", id).Scan(&count, &exp)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil, paste.ErrNotFound
+	}
+	if err != nil {
+		return 0, nil, translate(err)
+	}
+	if exp.Valid {
+		return count, &exp.Time, nil
+	}
+	return count, nil, nil
 }
 
 // translate turns the MySQL errors paste.Store names into its own.

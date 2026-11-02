@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -31,6 +32,8 @@ type memStore struct {
 	pingErr error // what Ping returns, for the /health tests
 	hang    bool  // Get and Create wait until the request's context ends, like on a locked table
 	err     error // what Get and Create return instead of working
+	views   int64 // what Views returns
+	counted *viewLog
 }
 
 func (m *memStore) Ping(context.Context) error { return m.pingErr }
@@ -69,6 +72,37 @@ func (m *memStore) Get(ctx context.Context, id string) (paste.Paste, error) {
 	return p, nil
 }
 
+func (m *memStore) Views(ctx context.Context, id string) (int64, *time.Time, error) {
+	if err := m.fail(ctx); err != nil {
+		return 0, nil, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	p, ok := m.pastes[id]
+	if !ok {
+		return 0, nil, paste.ErrNotFound
+	}
+	return m.views, p.ExpiresAt, nil
+}
+
+// viewLog remembers the reads counted.
+type viewLog struct {
+	mu  sync.Mutex
+	ids []string
+}
+
+func (v *viewLog) Record(id string) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.ids = append(v.ids, id)
+}
+
+func (v *viewLog) recorded() []string {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	return slices.Clone(v.ids)
+}
+
 // newTestApp builds the app over an in-memory store. createsPerMinute is the
 // create rate limit; 0 turns it off.
 func newTestApp(t *testing.T, createsPerMinute int) (*echo.Echo, *memStore) {
@@ -79,12 +113,12 @@ func newTestApp(t *testing.T, createsPerMinute int) (*echo.Echo, *memStore) {
 // newLoggingTestApp is newTestApp with the handlers' log written to logs.
 func newLoggingTestApp(t *testing.T, createsPerMinute int, logs io.Writer) (*echo.Echo, *memStore) {
 	t.Helper()
-	store := &memStore{pastes: map[string]paste.Paste{}}
-	h := handlers.New(paste.NewService(store), store, "http://paste.test", slog.New(slog.NewTextHandler(logs, nil)))
+	store := &memStore{pastes: map[string]paste.Paste{}, counted: &viewLog{}}
+	h := handlers.New(paste.NewService(store), store, store.counted, "http://paste.test", slog.New(slog.NewTextHandler(logs, nil)))
 
 	e := echo.New()
 	e.Renderer = handlers.NewRenderer()
-	routes.RegisterAPIRoutes(e, h, createsPerMinute)
+	routes.RegisterAPIRoutes(e, h, handlers.LimitCreates(createsPerMinute, nil, slog.New(slog.NewTextHandler(logs, nil))))
 	return e, store
 }
 
@@ -132,7 +166,7 @@ func TestHomePageShowsForm(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
 	}
-	for _, want := range []string{`action="/paste"`, `name="content"`, `name="expires"`, `value="1h"`, `name="language"`, `value="sql"`, `id="theme-toggle"`, fmt.Sprintf("Up to %d KiB", paste.MaxContentBytes>>10)} {
+	for _, want := range []string{`action="/paste"`, `name="content"`, `name="expires"`, `value="30m"`, `name="language"`, `value="sql"`, `id="theme-toggle"`, fmt.Sprintf("Up to %d KiB", paste.MaxContentBytes>>10)} {
 		if !strings.Contains(body, want) {
 			t.Errorf("home page is missing %s", want)
 		}
@@ -169,9 +203,63 @@ func TestCreateThenRead(t *testing.T) {
 	}
 }
 
+func TestOnlySuccessfulReadsAreCounted(t *testing.T) {
+	srv, store := newTestServer(t)
+	store.pastes["aB3xK9pQ"] = paste.Paste{ID: "aB3xK9pQ", Content: "x"}
+	past := time.Now().UTC().Add(-time.Minute)
+	store.pastes["OLDPASTE"] = paste.Paste{ID: "OLDPASTE", Content: "x", ExpiresAt: &past}
+
+	get(t, srv.URL+"/aB3xK9pQ")
+	get(t, srv.URL+"/aB3xK9pQ")
+	get(t, srv.URL+"/OLDPASTE")
+	get(t, srv.URL+"/NOPE1234")
+	store.err = errors.New("database down")
+	get(t, srv.URL+"/aB3xK9pQ")
+
+	if got := store.counted.recorded(); !slices.Equal(got, []string{"aB3xK9pQ", "aB3xK9pQ"}) {
+		t.Fatalf("counted %v, want two reads of aB3xK9pQ", got)
+	}
+}
+
+func TestStatsReturnsTheCountWithoutCaching(t *testing.T) {
+	srv, store := newTestServer(t)
+	store.pastes["aB3xK9pQ"] = paste.Paste{ID: "aB3xK9pQ", Content: "x"}
+	store.views = 42
+
+	resp, body := get(t, srv.URL+"/aB3xK9pQ/stats")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if strings.TrimSpace(body) != `{"id":"aB3xK9pQ","views":42}` {
+		t.Fatalf("body = %s", body)
+	}
+	if cc := resp.Header.Get("Cache-Control"); cc != "no-store" {
+		t.Fatalf("Cache-Control = %q, want no-store", cc)
+	}
+	if got := store.counted.recorded(); len(got) != 0 {
+		t.Fatalf("asking for the count counted as a read: %v", got)
+	}
+}
+
+func TestStatsOfAnExpiredOrUnknownPasteIs404(t *testing.T) {
+	srv, store := newTestServer(t)
+	past := time.Now().UTC().Add(-time.Minute)
+	store.pastes["OLDPASTE"] = paste.Paste{ID: "OLDPASTE", Content: "x", ExpiresAt: &past}
+
+	for _, id := range []string{"OLDPASTE", "NOPE1234"} {
+		resp, _ := get(t, srv.URL+"/"+id+"/stats")
+		if resp.StatusCode != http.StatusNotFound {
+			t.Fatalf("%s: status = %d, want 404", id, resp.StatusCode)
+		}
+		if cc := resp.Header.Get("Cache-Control"); cc != "no-store" {
+			t.Fatalf("%s: Cache-Control = %q, want no-store", id, cc)
+		}
+	}
+}
+
 func TestCacheLifetimeStopsAtExpiry(t *testing.T) {
 	srv, _ := newTestServer(t)
-	loc := postPaste(t, srv, "short-lived", "10m").Header.Get("Location")
+	loc := postPaste(t, srv, "short-lived", "30m").Header.Get("Location")
 
 	resp, _ := get(t, srv.URL+loc)
 	cc := resp.Header.Get("Cache-Control")
@@ -179,8 +267,8 @@ func TestCacheLifetimeStopsAtExpiry(t *testing.T) {
 	if _, err := fmt.Sscanf(cc, "private, max-age=%d", &secs); err != nil {
 		t.Fatalf("Cache-Control = %q: %v", cc, err)
 	}
-	if secs <= 0 || secs > 600 {
-		t.Fatalf("max-age = %d, want within (0, 600] for a 10 minute paste", secs)
+	if secs <= 0 || secs > 1800 {
+		t.Fatalf("max-age = %d, want within (0, 1800] for a 30 minute paste", secs)
 	}
 }
 
@@ -279,6 +367,81 @@ func TestOversizedBodyIsRejectedBeforeItIsParsed(t *testing.T) {
 	}
 }
 
+// fakeSharedLimit answers from its fields, and remembers what it was asked.
+type fakeSharedLimit struct {
+	allow     bool
+	err       error
+	id        string
+	perMinute int
+	burst     int
+	deadline  time.Duration
+}
+
+func (f *fakeSharedLimit) Allow(ctx context.Context, id string, perMinute, burst int) (bool, error) {
+	f.id, f.perMinute, f.burst = id, perMinute, burst
+	if d, ok := ctx.Deadline(); ok {
+		f.deadline = time.Until(d)
+	}
+	return f.allow, f.err
+}
+
+func newSharedLimitApp(t *testing.T, shared handlers.SharedLimit) *echo.Echo {
+	t.Helper()
+	store := &memStore{pastes: map[string]paste.Paste{}, counted: &viewLog{}}
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	e := echo.New()
+	e.Renderer = handlers.NewRenderer()
+	routes.RegisterAPIRoutes(e, handlers.New(paste.NewService(store), store, store.counted, "http://paste.test", log),
+		handlers.LimitCreates(30, shared, log))
+	return e
+}
+
+func TestTheSharedLimitDecides(t *testing.T) {
+	shared := &fakeSharedLimit{allow: true}
+	e := newSharedLimitApp(t, shared)
+
+	// More than this instance's own burst would let through.
+	for i := range 20 {
+		if rec := createFrom(e, "203.0.113.7:1234", nil); rec.Code != http.StatusSeeOther {
+			t.Fatalf("create %d: status %d, want 303", i+1, rec.Code)
+		}
+	}
+	if shared.id != "203.0.113.7" || shared.perMinute != 30 || shared.burst != 10 {
+		t.Fatalf("asked for id %q, %d/min, burst %d", shared.id, shared.perMinute, shared.burst)
+	}
+	if shared.deadline <= 0 || shared.deadline > 100*time.Millisecond {
+		t.Fatalf("deadline in %v, want within 100ms", shared.deadline)
+	}
+
+	shared.allow = false
+	rec := createFrom(e, "203.0.113.7:1234", nil)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("status %d, want 429", rec.Code)
+	}
+	if rec.Header().Get("Retry-After") == "" {
+		t.Fatal("a refused create has no Retry-After")
+	}
+}
+
+func TestWhenTheSharedLimitFailsTheOwnLimitApplies(t *testing.T) {
+	e := newSharedLimitApp(t, &fakeSharedLimit{err: errors.New("redis down")})
+
+	for i := range 10 {
+		if rec := createFrom(e, "203.0.113.7:1234", nil); rec.Code != http.StatusSeeOther {
+			t.Fatalf("create %d: status %d, want 303", i+1, rec.Code)
+		}
+	}
+	if rec := createFrom(e, "203.0.113.7:1234", nil); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("create past the burst: status %d, want 429: the limit must stay on", rec.Code)
+	}
+
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	if !strings.Contains(rec.Body.String(), "pastebin_rate_limit_fallbacks_total 1") {
+		t.Fatal("the fallbacks weren't counted")
+	}
+}
+
 // createFrom sends one create straight to the router as if from remoteAddr.
 func createFrom(e *echo.Echo, remoteAddr string, header http.Header) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodPost, "/paste", strings.NewReader("content=hi&expires=never"))
@@ -335,6 +498,31 @@ func TestForwardedHeadersDontResetTheLimit(t *testing.T) {
 
 	forged := http.Header{"X-Forwarded-For": {"203.0.113.7"}, "X-Real-Ip": {"203.0.113.8"}}
 	if rec := createFrom(e, "192.0.2.1:40000", forged); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("forged X-Forwarded-For: status %d, want 429", rec.Code)
+	}
+}
+
+func TestBehindNginxClientsAreToldApartByXRealIP(t *testing.T) {
+	const nginx = "172.18.0.5:40000" // a private address, as on the Compose network
+	e, _ := newTestApp(t, 1)
+	client := func(ip string) http.Header { return http.Header{"X-Real-Ip": {ip}} }
+
+	for i := range 10 {
+		if rec := createFrom(e, nginx, client("203.0.113.7")); rec.Code != http.StatusSeeOther {
+			t.Fatalf("create %d of the burst: status %d, want 303", i+1, rec.Code)
+		}
+	}
+	if rec := createFrom(e, nginx, client("203.0.113.7")); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("same client: status %d, want 429", rec.Code)
+	}
+	if rec := createFrom(e, nginx, client("203.0.113.8")); rec.Code != http.StatusSeeOther {
+		t.Fatalf("another client behind the same nginx: status %d, want 303", rec.Code)
+	}
+
+	// nginx passes X-Forwarded-For through as the client sent it.
+	forged := client("203.0.113.7")
+	forged["X-Forwarded-For"] = []string{"198.51.100.9"}
+	if rec := createFrom(e, nginx, forged); rec.Code != http.StatusTooManyRequests {
 		t.Fatalf("forged X-Forwarded-For: status %d, want 429", rec.Code)
 	}
 }
@@ -495,11 +683,11 @@ func TestMetricsAreServed(t *testing.T) {
 func TestOnlyStoredPastesAreCounted(t *testing.T) {
 	srv, _ := newTestServer(t)
 	// No other test uses this language and expiry pair, so the count is this test's alone.
-	postForm(t, srv, url.Values{"content": {"fn main() {}"}, "expires": {"1w"}, "language": {"rust"}})
+	postForm(t, srv, url.Values{"content": {"fn main() {}"}, "expires": {"7d"}, "language": {"rust"}})
 	postForm(t, srv, url.Values{"content": {"fn main() {}"}, "expires": {"forever"}, "language": {"rust"}})
 
 	_, body := get(t, srv.URL+"/metrics")
-	if want := `pastebin_pastes_created_total{expires="1w",language="rust"} 1`; !strings.Contains(body, want) {
+	if want := `pastebin_pastes_created_total{expires="7d",language="rust"} 1`; !strings.Contains(body, want) {
 		t.Errorf("/metrics is missing %s", want)
 	}
 	if strings.Contains(body, `expires="forever"`) {

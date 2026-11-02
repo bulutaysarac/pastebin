@@ -1,4 +1,4 @@
-.PHONY: build run stop remove
+.PHONY: build run stop remove backup
 
 build: ## Build the app image
 	docker compose build
@@ -12,3 +12,6 @@ stop: ## Stop the containers without deleting anything
 
 remove: ## Delete containers, network, the data volumes and the app image
 	docker compose down --volumes --rmi local
+
+backup: ## Dump the database to backups/ while the app keeps running
+	./scripts/backup.sh
