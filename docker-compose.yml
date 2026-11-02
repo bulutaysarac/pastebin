@@ -16,6 +16,7 @@ services:
       # `RATE_LIMIT_CREATES_PER_MINUTE=0 make run` turns it off for load tests.
       RATE_LIMIT_CREATES_PER_MINUTE: ${RATE_LIMIT_CREATES_PER_MINUTE:-30}
       CLEANUP_INTERVAL: ${CLEANUP_INTERVAL:-1m}
+      VIEWS_INTERVAL: ${VIEWS_INTERVAL:-1m}
       REDIS_ADDR: redis:6379
     depends_on:
       mysql:
@@ -30,12 +31,15 @@ services:
       timeout: 3s
       retries: 3
     restart: unless-stopped
-    # The HTTP drain allows 10s and a cleanup batch 5s. The default of 10s would
-    # kill the app before they end.
-    stop_grace_period: 20s
+    # The HTTP drain allows 10s, a cleanup batch 5s and the last write of read
+    # counts 5s. The default of 10s would kill the app before they end.
+    stop_grace_period: 25s
 
   mysql:
     image: mysql:8.4
+    # Write only the changed columns to the binlog. With the default, FULL, every
+    # update of a paste's read count would write its whole content there, twice.
+    command: ["--binlog-row-image=MINIMAL"]
     environment:
       # Local development credentials only.
       MYSQL_ROOT_PASSWORD: root

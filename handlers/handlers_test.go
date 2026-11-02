@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -31,6 +32,8 @@ type memStore struct {
 	pingErr error // what Ping returns, for the /health tests
 	hang    bool  // Get and Create wait until the request's context ends, like on a locked table
 	err     error // what Get and Create return instead of working
+	views   int64 // what Views returns
+	counted *viewLog
 }
 
 func (m *memStore) Ping(context.Context) error { return m.pingErr }
@@ -69,6 +72,37 @@ func (m *memStore) Get(ctx context.Context, id string) (paste.Paste, error) {
 	return p, nil
 }
 
+func (m *memStore) Views(ctx context.Context, id string) (int64, *time.Time, error) {
+	if err := m.fail(ctx); err != nil {
+		return 0, nil, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	p, ok := m.pastes[id]
+	if !ok {
+		return 0, nil, paste.ErrNotFound
+	}
+	return m.views, p.ExpiresAt, nil
+}
+
+// viewLog remembers the reads counted.
+type viewLog struct {
+	mu  sync.Mutex
+	ids []string
+}
+
+func (v *viewLog) Record(id string) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.ids = append(v.ids, id)
+}
+
+func (v *viewLog) recorded() []string {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	return slices.Clone(v.ids)
+}
+
 // newTestApp builds the app over an in-memory store. createsPerMinute is the
 // create rate limit; 0 turns it off.
 func newTestApp(t *testing.T, createsPerMinute int) (*echo.Echo, *memStore) {
@@ -79,8 +113,8 @@ func newTestApp(t *testing.T, createsPerMinute int) (*echo.Echo, *memStore) {
 // newLoggingTestApp is newTestApp with the handlers' log written to logs.
 func newLoggingTestApp(t *testing.T, createsPerMinute int, logs io.Writer) (*echo.Echo, *memStore) {
 	t.Helper()
-	store := &memStore{pastes: map[string]paste.Paste{}}
-	h := handlers.New(paste.NewService(store), store, "http://paste.test", slog.New(slog.NewTextHandler(logs, nil)))
+	store := &memStore{pastes: map[string]paste.Paste{}, counted: &viewLog{}}
+	h := handlers.New(paste.NewService(store), store, store.counted, "http://paste.test", slog.New(slog.NewTextHandler(logs, nil)))
 
 	e := echo.New()
 	e.Renderer = handlers.NewRenderer()
@@ -166,6 +200,60 @@ func TestCreateThenRead(t *testing.T) {
 	}
 	if !strings.Contains(body, "&lt;script&gt;alert(1)&lt;/script&gt;") {
 		t.Error("escaped paste content not found on the page")
+	}
+}
+
+func TestOnlySuccessfulReadsAreCounted(t *testing.T) {
+	srv, store := newTestServer(t)
+	store.pastes["aB3xK9pQ"] = paste.Paste{ID: "aB3xK9pQ", Content: "x"}
+	past := time.Now().UTC().Add(-time.Minute)
+	store.pastes["OLDPASTE"] = paste.Paste{ID: "OLDPASTE", Content: "x", ExpiresAt: &past}
+
+	get(t, srv.URL+"/aB3xK9pQ")
+	get(t, srv.URL+"/aB3xK9pQ")
+	get(t, srv.URL+"/OLDPASTE")
+	get(t, srv.URL+"/NOPE1234")
+	store.err = errors.New("database down")
+	get(t, srv.URL+"/aB3xK9pQ")
+
+	if got := store.counted.recorded(); !slices.Equal(got, []string{"aB3xK9pQ", "aB3xK9pQ"}) {
+		t.Fatalf("counted %v, want two reads of aB3xK9pQ", got)
+	}
+}
+
+func TestStatsReturnsTheCountWithoutCaching(t *testing.T) {
+	srv, store := newTestServer(t)
+	store.pastes["aB3xK9pQ"] = paste.Paste{ID: "aB3xK9pQ", Content: "x"}
+	store.views = 42
+
+	resp, body := get(t, srv.URL+"/aB3xK9pQ/stats")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if strings.TrimSpace(body) != `{"id":"aB3xK9pQ","views":42}` {
+		t.Fatalf("body = %s", body)
+	}
+	if cc := resp.Header.Get("Cache-Control"); cc != "no-store" {
+		t.Fatalf("Cache-Control = %q, want no-store", cc)
+	}
+	if got := store.counted.recorded(); len(got) != 0 {
+		t.Fatalf("asking for the count counted as a read: %v", got)
+	}
+}
+
+func TestStatsOfAnExpiredOrUnknownPasteIs404(t *testing.T) {
+	srv, store := newTestServer(t)
+	past := time.Now().UTC().Add(-time.Minute)
+	store.pastes["OLDPASTE"] = paste.Paste{ID: "OLDPASTE", Content: "x", ExpiresAt: &past}
+
+	for _, id := range []string{"OLDPASTE", "NOPE1234"} {
+		resp, _ := get(t, srv.URL+"/"+id+"/stats")
+		if resp.StatusCode != http.StatusNotFound {
+			t.Fatalf("%s: status = %d, want 404", id, resp.StatusCode)
+		}
+		if cc := resp.Header.Get("Cache-Control"); cc != "no-store" {
+			t.Fatalf("%s: Cache-Control = %q, want no-store", id, cc)
+		}
 	}
 }
 

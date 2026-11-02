@@ -23,13 +23,15 @@ func main() {
 	providers.RegisterMetrics(db)
 	stopCleanup := providers.StartCleanup(db)
 	defer stopCleanup() // runs before db.Close
+	counts, stopViews := providers.StartViews(db)
+	defer stopViews() // runs after the server has stopped, so no read is left out
 
 	providers.RegisterRenderer(e)
 	providers.RegisterMiddlewares(e)
 
 	app := environments.GetApp()
 	pastes := paste.NewService(cache.New(db, rdb, slog.Default()))
-	routes.RegisterAPIRoutes(e, handlers.New(pastes, db, app.BaseURL, slog.Default()), app.CreatesPerMinute)
+	routes.RegisterAPIRoutes(e, handlers.New(pastes, db, counts, app.BaseURL, slog.Default()), app.CreatesPerMinute)
 
 	providers.StartServer(e)
 }

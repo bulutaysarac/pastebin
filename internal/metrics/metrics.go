@@ -100,6 +100,35 @@ func ObserveCacheRequest(result string) {
 	cacheRequests.WithLabelValues(result).Inc()
 }
 
+var viewsFlushed = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "pastebin_views_flushed_total",
+	Help: "Paste reads written to the database.",
+})
+
+var viewsFlushFailures = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "pastebin_views_flush_failures_total",
+	Help: "Writes of read counts that stopped on an error. The counts are kept for the next one.",
+})
+
+var viewsDropped = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "pastebin_views_dropped_total",
+	Help: "Paste reads not counted, because too many pastes were waiting to be written.",
+})
+
+// ObserveViewsFlush records one write of read counts: the reads it wrote,
+// including those before an error, and whether it failed.
+func ObserveViewsFlush(written int64, failed bool) {
+	viewsFlushed.Add(float64(written))
+	if failed {
+		viewsFlushFailures.Inc()
+	}
+}
+
+// ObserveViewsDropped records reads that could not be counted.
+func ObserveViewsDropped(reads int64) {
+	viewsDropped.Add(float64(reads))
+}
+
 // knownMethod folds anything but the standard methods into "OTHER": clients
 // choose the method string, so it must not be able to create new series.
 func knownMethod(m string) string {

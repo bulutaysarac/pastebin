@@ -56,6 +56,8 @@ type Store interface {
 	Create(ctx context.Context, p Paste) error
 	// Get returns the paste with the given ID, or ErrNotFound.
 	Get(ctx context.Context, id string) (Paste, error)
+	// Views returns the paste's read count and expiry, or ErrNotFound.
+	Views(ctx context.Context, id string) (int64, *time.Time, error)
 }
 
 type Service struct {
@@ -116,6 +118,19 @@ func (s *Service) Get(ctx context.Context, id string) (Paste, error) {
 		return Paste{}, ErrNotFound
 	}
 	return p, nil
+}
+
+// Views returns how many times a live paste was read, up to the last write of
+// the counts. An expired paste is reported as ErrNotFound, as in Get.
+func (s *Service) Views(ctx context.Context, id string) (int64, error) {
+	count, exp, err := s.store.Views(ctx, id)
+	if err != nil {
+		return 0, err
+	}
+	if (Paste{ExpiresAt: exp}).Expired(s.now()) {
+		return 0, ErrNotFound
+	}
+	return count, nil
 }
 
 // Now exposes the service clock so HTTP code computes cache lifetimes against

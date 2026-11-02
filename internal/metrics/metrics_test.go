@@ -119,6 +119,23 @@ func cacheRequestsFor(t *testing.T, result string) float64 {
 	return 0
 }
 
+func TestObserveViewsCounts(t *testing.T) {
+	ObserveViewsFlush(5, false)
+	ObserveViewsFlush(2, true)
+	ObserveViewsDropped(3)
+
+	body := scrape(t)
+	for _, want := range []string{
+		"pastebin_views_flushed_total 7",
+		"pastebin_views_flush_failures_total 1",
+		"pastebin_views_dropped_total 3",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("/metrics is missing %q", want)
+		}
+	}
+}
+
 func TestRegisterDBStatsExposesPoolGauges(t *testing.T) {
 	sql.Register("metrics-test-nop", nopDriver{})
 	db, err := sql.Open("metrics-test-nop", "")

@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
@@ -16,6 +17,7 @@ import (
 	"github.com/pressly/goose/v3/lock"
 
 	"github.com/bulutaysarac/pastebin/internal/paste"
+	"github.com/bulutaysarac/pastebin/internal/views"
 )
 
 // MySQL error numbers the store translates.
@@ -182,6 +184,50 @@ func (s *Store) DeleteExpired(ctx context.Context, now time.Time, limit int) (in
 		return 0, err
 	}
 	return res.RowsAffected()
+}
+
+// AddViews adds the counts to their pastes in one statement. Ids that no longer
+// exist are ignored. Callers pass ids in order, so two instances writing the
+// same pastes lock them in the same order.
+func (s *Store) AddViews(ctx context.Context, batch []views.Count) error {
+	if len(batch) == 0 {
+		return nil
+	}
+	var q strings.Builder
+	args := make([]any, 0, 3*len(batch))
+	q.WriteString("UPDATE pastes SET views = views + CASE id")
+	for _, c := range batch {
+		q.WriteString(" WHEN ? THEN ?")
+		args = append(args, c.ID, c.N)
+	}
+	q.WriteString(" ELSE 0 END WHERE id IN (?")
+	q.WriteString(strings.Repeat(",?", len(batch)-1))
+	q.WriteString(")")
+	for _, c := range batch {
+		args = append(args, c.ID)
+	}
+	_, err := s.db.ExecContext(ctx, q.String(), args...)
+	return translate(err)
+}
+
+// Views returns the paste's read count and when it expires, or ErrNotFound. It
+// doesn't read the content, however large.
+func (s *Store) Views(ctx context.Context, id string) (int64, *time.Time, error) {
+	var (
+		count int64
+		exp   sql.NullTime
+	)
+	err := s.db.QueryRowContext(ctx, "SELECT views, expires_at FROM pastes WHERE id = ?", id).Scan(&count, &exp)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil, paste.ErrNotFound
+	}
+	if err != nil {
+		return 0, nil, translate(err)
+	}
+	if exp.Valid {
+		return count, &exp.Time, nil
+	}
+	return count, nil, nil
 }
 
 // translate turns the MySQL errors paste.Store names into its own.

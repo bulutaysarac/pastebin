@@ -62,6 +62,10 @@ func (f *fakeStore) Get(ctx context.Context, id string) (paste.Paste, error) {
 	return p, nil
 }
 
+func (f *fakeStore) Views(context.Context, string) (int64, *time.Time, error) {
+	return 0, nil, nil
+}
+
 func (f *fakeStore) getCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
